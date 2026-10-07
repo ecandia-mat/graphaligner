@@ -91,6 +91,18 @@ td.clk{cursor:pointer}
 .no{color:var(--bad);font-weight:650}
 .note{color:var(--quiet);font-size:12px}
 .result td{padding:2px 8px 2px 0;vertical-align:top}
+.alnwrap{overflow-x:auto;margin:6px 0 4px;padding-bottom:4px}
+table.aln{border-collapse:collapse;font:13px var(--mono)}
+table.aln td{padding:0 1px;text-align:center;min-width:12px;line-height:1.35}
+table.aln td.al{color:var(--quiet);font-size:11px;text-align:right;padding-right:6px;white-space:nowrap;position:sticky;left:0;background:var(--panel)}
+table.aln td.m{color:var(--good);font-weight:700}
+table.aln td.x{background:var(--bad-soft);color:var(--bad);font-weight:700}
+table.aln td.i,table.aln td.d{background:var(--warn-soft);color:var(--warn);font-weight:700}
+table.aln td.clip{color:var(--quiet);opacity:.55}
+table.aln td.nb{border-left:1px solid var(--line)}
+table.aln td.nl{color:var(--quiet);font-size:10px;text-align:left;white-space:nowrap;overflow:visible;max-width:12px}
+.alnkey{font-size:11.5px;color:var(--quiet)}
+.alnkey b{font-family:var(--mono)}
 .result td:first-child{color:var(--quiet);white-space:nowrap}
 code{font-family:var(--mono);font-size:12.5px}
 details summary{cursor:pointer;font-weight:600}
@@ -178,10 +190,6 @@ details summary{cursor:pointer;font-weight:600}
       <div class="bits" id="bits"><span class="note">Clique numa célula calculada da matriz.</span></div>
     </section>
 
-    <section class="panel">
-      <h2>Resultado</h2>
-      <div id="result" class="note">Aparece no último passo.</div>
-    </section>
   </div>
 
   <div class="mainc">
@@ -201,6 +209,10 @@ details summary{cursor:pointer;font-weight:600}
       <div class="queue" id="queue"></div>
     </section>
 
+    <section class="panel">
+      <h2>Resultado: read contra o caminho no grafo</h2>
+      <div id="result" class="note">Aparece no último passo.</div>
+    </section>
     <section class="panel">
       <h2>Grafo de alinhamento</h2>
       <div class="note" id="graphNote"></div>
@@ -899,7 +911,26 @@ function renderSeeds(){
   $('clusterSel').onchange=ev=>{PARAMS_CLUSTER=+ev.target.value;execute();};
 }
 
-function summarize(path,ops,startRow,endRow,cC,extra){
+function alignmentView(path,ops,startRow,endRow,read){
+  const cols=[];
+  for(let r=0;r<startRow;r++) cols.push({rd:read[r].toLowerCase(),cls:'clip'});
+  let prevV=null, nodeIdx=0;
+  path.forEach((p,i)=>{
+    const o=ops[i], n=G.nodes[p.v], gch=n.seq[p.c];
+    let lab='', nb=false;
+    if(o!=='I'){ if(p.v!==prevV){ lab=n.name+n.strand; nb=prevV!==null; nodeIdx++; } prevV=p.v; }
+    if(o==='=') cols.push({g:gch,mk:'|',rd:read[p.r],cls:'m',lab,nb,alt:nodeIdx%2,full:'n'+p.v+' '+label(n),t:'casamento'});
+    else if(o==='X') cols.push({g:gch,mk:'x',rd:read[p.r],cls:'x',lab,nb,alt:nodeIdx%2,full:'n'+p.v+' '+label(n),t:'substituição'});
+    else if(o==='I') cols.push({g:'-',rd:read[p.r],cls:'i',t:'inserção: base a mais na read'});
+    else cols.push({g:gch,rd:'-',cls:'d',lab,nb,alt:nodeIdx%2,full:'n'+p.v+' '+label(n),t:'deleção: base do grafo que falta na read'});
+  });
+  for(let r=endRow+1;r<read.length;r++) cols.push({rd:read[r].toLowerCase(),cls:'clip'});
+  const row=(lab,key,extra)=>'<tr><td class="al">'+lab+'</td>'+cols.map(c=>'<td class="'+(extra||c.cls)+(c.nb?' nb':'')+'"'+(c.t?' title="'+c.t+'"':'')+'>'+(c[key]||'&nbsp;')+'</td>').join('')+'</tr>';
+  const nodeRow=(lab,par)=>'<tr><td class="al">'+lab+'</td>'+cols.map(c=>'<td class="nl"'+(c.full?' title="'+c.full+'"':'')+'>'+(c.lab&&c.alt===par?c.lab:'&nbsp;')+'</td>').join('')+'</tr>';
+  return '<div class="alnwrap"><table class="aln">'+nodeRow('nó',1)+nodeRow('',0)+row('grafo','g')+row('','mk')+row('read','rd')+'</table></div>'+
+    '<div class="alnkey"><b class="ok">|</b> casamento · <b class="no">x</b> substituição · <b>-</b> no grafo = inserção (base a mais na read) · <b>-</b> na read = deleção · minúsculas cinza = read cortada · linha fina = troca de nó</div>';
+}
+function summarize(path,ops,startRow,endRow,cC,extra,read){
   const cnt=k=>ops.filter(o=>o===k).length;
   const M=cnt('='),X=cnt('X'),I=cnt('I'),D=cnt('D'), E=X+I+D, L=M+X+I;
   let cig='',last='',n=0; for(const o of ops.concat(['$'])){if(o===last)n++;else{if(n)cig+=n+last;last=o;n=1;}}
@@ -907,7 +938,7 @@ function summarize(path,ops,startRow,endRow,cC,extra){
   const rows=[['caminho',np.join(' → ')],['trecho da read',startRow+'–'+endRow+' ('+L+' bases)'],['CIGAR',cig],['erros (NM)',E+' = '+X+' X + '+I+' I + '+D+' D'],['identidade',(M/Math.max(1,ops.length)).toFixed(3)]];
   if(extra==='semi') rows.push(['distância de edição',String(E)]);
   else rows.push(['AS = L − c·E',(L-cC*E).toFixed(2)+'  (c = '+cC.toFixed(2)+')']);
-  return '<table class="result">'+rows.map(r=>'<tr><td>'+r[0]+'</td><td><code>'+r[1]+'</code></td></tr>').join('')+'</table>';
+  return (read?alignmentView(path,ops,startRow,endRow,read):'')+'<table class="result">'+rows.map(r=>'<tr><td>'+r[0]+'</td><td><code>'+r[1]+'</code></td></tr>').join('')+'</table>';
 }
 
 function renderResult(st){
@@ -915,11 +946,11 @@ function renderResult(st){
   const r0=RUN.passes[0].result, done=step===RUN.events.length-1||st.final;
   let h='';
   if(st.result&&st.pass===0||st.pass===1||done){
-    if(r0.end){ h+='<div><b>Passe para a frente</b></div>'+summarize(r0.path,r0.ops,r0.startRow,r0.end.r,r0.cC,PARAMS.mode); }
+    if(r0.end){ h+='<div><b>Passe para a frente</b></div>'+summarize(r0.path,r0.ops,r0.startRow,r0.end.r,r0.cC,PARAMS.mode,READ); }
     else h+='<div class="err">Passe para a frente sem alinhamento.</div>';
   }
   if(done&&RUN.passes[1]){
-    if(RUN.final) h+='<div style="margin-top:8px"><b>Alinhamento final</b> (do passe para trás, convertido)</div>'+summarize(RUN.final.path,RUN.final.ops,RUN.final.startRow,RUN.final.endRow,RUN.final.cC,'local');
+    if(RUN.final) h+='<div style="margin-top:8px"><b>Alinhamento final</b> (do passe para trás, convertido)</div>'+summarize(RUN.final.path,RUN.final.ops,RUN.final.startRow,RUN.final.endRow,RUN.final.cC,'local',READ);
     else h+='<div class="err">O passe para trás não achou alinhamento.</div>';
   }
   if(r0.approx) h+='<div class="note">Algum passo do traceback não bateu exatamente por causa da banda; foi usado o menor predecessor, como no código.</div>';
