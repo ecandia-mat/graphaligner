@@ -4,12 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Visualizador do GraphAligner</title>
-<meta name="description" content="Visualizador passo a passo do núcleo do GraphAligner: GFA para grafo de alinhamento, DP bit-paralelo de Myers em grafos, fusão de colunas, ciclos, banda por score, X-score e traceback.">
+<meta name="description" content="Visualizador passo a passo do GraphAligner em grafos pequenos: GFA, sementes, DP bit-paralelo de Myers por fatias, fusão de colunas, ciclos, banda por score, X-score, X-drop, passe para trás e traceback.">
 <style>
 :root{
   --bg:#f7f7f5; --panel:#ffffff; --ink:#1d1d1f; --quiet:#6b6b70; --line:#d9d9de;
   --accent:#2f6fd6; --accent-soft:#e3ecfb; --warn:#d9822b; --warn-soft:#fbeedd;
   --good:#2e8b57; --good-soft:#e1f2e8; --bad:#c0392b; --bad-soft:#f8e1de;
+  --seed:#8e44ad; --seed-soft:#f0e4f6;
   --pad:#ececef; --grid:#e8e8ec; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
 @media (prefers-color-scheme: dark){
@@ -17,6 +18,7 @@
     --bg:#16171a; --panel:#1f2024; --ink:#ececf0; --quiet:#a0a0a8; --line:#3a3b42;
     --accent:#6ea0ff; --accent-soft:#233452; --warn:#f0a050; --warn-soft:#4a3520;
     --good:#5cc08a; --good-soft:#1f3a2c; --bad:#ff7b6b; --bad-soft:#4a2420;
+    --seed:#c58be0; --seed-soft:#3a2645;
     --pad:#2a2b30; --grid:#2c2d33;
   }
 }
@@ -24,26 +26,34 @@
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 header{padding:16px 20px 4px}
 header h1{font-size:20px;margin:0 0 4px}
-header p{margin:0;color:var(--quiet);max-width:980px}
-.layout{display:grid;grid-template-columns:340px minmax(0,1fr);gap:14px;padding:14px 20px 30px}
+header p{margin:0;color:var(--quiet);max-width:1000px}
+.layout{display:grid;grid-template-columns:350px minmax(0,1fr);gap:14px;padding:14px 20px 30px}
 @media (max-width:900px){.layout{grid-template-columns:1fr;padding:12px 16px}}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
 .panel h2{font-size:14px;margin:0 0 8px;font-weight:650}
-.side{display:flex;flex-direction:column;gap:14px;min-width:0}
-.mainc{display:flex;flex-direction:column;gap:14px;min-width:0}
+.panel h3{font-size:12.5px;margin:12px 0 4px;font-weight:650;color:var(--quiet);text-transform:uppercase;letter-spacing:.03em}
+.side,.mainc{display:flex;flex-direction:column;gap:14px;min-width:0}
 label{display:block;font-size:12px;color:var(--quiet);margin:8px 0 3px}
 textarea,input,select{width:100%;font:13px var(--mono);background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px}
 textarea{height:170px;resize:vertical;tab-size:4;white-space:pre;overflow:auto}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.inline{display:flex;gap:4px;align-items:center;margin-top:4px}
+.inline input,.inline select{padding:4px 5px}
+.inline button{white-space:nowrap}
 .chk{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--ink);margin-top:8px}
 .chk input{width:auto}
 button{font:13px system-ui,sans-serif;background:var(--accent);color:#fff;border:0;border-radius:6px;padding:7px 12px;cursor:pointer}
 button.sec{background:var(--pad);color:var(--ink);border:1px solid var(--line)}
+button.small{padding:4px 8px;font-size:12px}
 button:disabled{opacity:.45;cursor:default}
 .err{color:var(--bad);font-size:12px;white-space:pre-wrap;margin-top:6px}
+.info{color:var(--good);font-size:12px;margin-top:6px}
 .controls{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .controls input[type=range]{flex:1;min-width:140px}
 .stepinfo{font:12px var(--mono);color:var(--quiet);min-width:90px;text-align:right}
+.passtag{display:inline-block;font-size:12px;font-weight:650;padding:2px 8px;border-radius:10px;background:var(--pad);margin-left:6px}
+.passtag.back{background:var(--seed-soft);color:var(--seed)}
 .msg{margin-top:10px;padding:10px 12px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:4px;white-space:pre-wrap}
 .queue{margin-top:8px;font:12px var(--mono);color:var(--quiet)}
 .queue b{color:var(--ink)}
@@ -53,7 +63,7 @@ table.dp{border-collapse:collapse;font:11.5px var(--mono)}
 table.dp th,table.dp td{border:1px solid var(--grid);min-width:22px;height:20px;text-align:center;padding:0 2px}
 table.dp th{background:var(--panel);color:var(--quiet);font-weight:500;position:sticky;top:0;z-index:1}
 table.dp th.nodeh{font-weight:650;color:var(--ink)}
-table.dp td.rl{color:var(--quiet);text-align:right;padding-right:4px;background:var(--panel);position:sticky;left:0;z-index:1}
+table.dp td.rl{color:var(--quiet);text-align:right;padding-right:4px;background:var(--panel);position:sticky;left:0;z-index:1;white-space:nowrap}
 table.dp tr.sliceTop td{border-top:2px solid var(--quiet)}
 table.dp td.nodeL{border-left:2px solid var(--quiet)}
 table.dp td.padrow{background:var(--pad);color:var(--quiet)}
@@ -62,6 +72,7 @@ td.c-band{background:var(--accent-soft)}
 td.c-out{background:repeating-linear-gradient(45deg,var(--pad),var(--pad) 3px,transparent 3px,transparent 6px);color:var(--quiet)}
 td.c-cur{outline:2px solid var(--warn);outline-offset:-2px}
 td.c-stored{box-shadow:inset 0 0 0 2px var(--good)}
+td.c-seed{box-shadow:inset 0 0 0 2px var(--seed);font-weight:700;color:var(--seed)}
 td.c-path{background:var(--good);color:#fff;font-weight:700}
 td.c-sel{outline:2px solid var(--accent);outline-offset:-2px}
 td.clk{cursor:pointer}
@@ -69,12 +80,13 @@ td.clk{cursor:pointer}
 .legend span{display:inline-flex;align-items:center;gap:5px}
 .sw{width:14px;height:12px;border:1px solid var(--line);display:inline-block}
 .bits{font:12px var(--mono)}
-.bits table{border-collapse:collapse;margin:6px 0}
-.bits td,.bits th{border:1px solid var(--grid);padding:1px 5px;text-align:center}
-.bits th{color:var(--quiet);font-weight:500}
+.bits table,.mini{border-collapse:collapse;margin:6px 0;font:12px var(--mono)}
+.bits td,.bits th,.mini td,.mini th{border:1px solid var(--grid);padding:1px 5px;text-align:center}
+.bits th,.mini th{color:var(--quiet);font-weight:500}
 .bits td.lab{text-align:left;color:var(--quiet);white-space:nowrap}
 .bits td.on{background:var(--accent-soft);font-weight:700}
 .bits td.win{background:var(--good-soft);font-weight:700}
+.mini tr.chosen td{background:var(--seed-soft)}
 .ok{color:var(--good);font-weight:650}
 .no{color:var(--bad);font-weight:650}
 .note{color:var(--quiet);font-size:12px}
@@ -82,13 +94,14 @@ td.clk{cursor:pointer}
 .result td:first-child{color:var(--quiet);white-space:nowrap}
 code{font-family:var(--mono);font-size:12.5px}
 details summary{cursor:pointer;font-weight:600}
-.help p,.help li{max-width:900px}
+.help p,.help li{max-width:920px}
+.hidden{display:none}
 </style>
 </head>
 <body>
 <header>
   <h1>Visualizador do GraphAligner</h1>
-  <p>Passo a passo do núcleo do GraphAligner em grafos pequenos: conversão do GFA, DP bit-paralelo de Myers por fatias, fusão de colunas, recálculo em ciclos, banda por score, X-score e traceback. Use palavras pequenas (w = 4 ou 8) para ver as fatias; o programa real usa w = 64.</p>
+  <p>Passo a passo do GraphAligner em grafos pequenos: conversão do GFA, sementes por minimizers, DP bit-paralelo de Myers por fatias, fusão de colunas, recálculo em ciclos, banda por score, X-score e X-drop, passe para trás e traceback. Use w = 4 ou 8 para ver as fatias; o programa real usa w = 64.</p>
 </header>
 
 <div class="layout">
@@ -96,30 +109,68 @@ details summary{cursor:pointer;font-weight:600}
     <section class="panel">
       <h2>Entrada</h2>
       <label for="preset">Exemplo</label>
-      <select id="preset"></select>
-      <label for="gfa">Grafo (GFA: linhas S e L, sobreposição <code>kM</code>)</label>
+      <div class="inline"><select id="preset"></select><button class="sec small" id="delSaved" title="excluir exemplo salvo">excluir</button></div>
+
+      <label for="gfa">Grafo (GFA: linhas S e L, sobreposição <code>kM</code>). Pode editar à vontade.</label>
       <textarea id="gfa" spellcheck="false" wrap="off"></textarea>
-      <label for="read">Read</label>
+      <div class="inline">
+        <input id="nName" placeholder="nome" style="width:62px">
+        <input id="nSeq" placeholder="sequência">
+        <button class="sec small" id="addNode">+ nó</button>
+      </div>
+      <div class="inline">
+        <input id="eA" placeholder="de" style="width:46px">
+        <select id="eAo" style="width:44px"><option>+</option><option>-</option></select>
+        <input id="eB" placeholder="para" style="width:46px">
+        <select id="eBo" style="width:44px"><option>+</option><option>-</option></select>
+        <input id="eOv" placeholder="sobrep." value="0" style="width:58px">
+        <button class="sec small" id="addEdge">+ aresta</button>
+      </div>
+
+      <label for="read">Read (padrão buscado)</label>
       <input id="read" spellcheck="false">
+
       <div class="row2">
         <div><label for="w">w (linhas por fatia)</label>
           <select id="w"><option>4</option><option selected>8</option><option>16</option></select></div>
         <div><label for="b">b (banda)</label><input id="b" type="number" min="0" value="2"></div>
       </div>
+      <label for="mode">Modo</label>
+      <select id="mode">
+        <option value="semi">sem sementes, semi-global (artigo de 2019)</option>
+        <option value="local">sem sementes, local com X-score</option>
+        <option value="seeds">com sementes (como o GraphAligner)</option>
+      </select>
       <div class="row2">
-        <div><label for="mode">Modo</label>
-          <select id="mode">
-            <option value="semi">semi-global (2019)</option>
-            <option value="local">local com X-score (atual)</option>
-          </select></div>
         <div><label for="p">identidade p</label><input id="p" type="number" min="0.51" max="0.99" step="0.01" value="0.66"></div>
+        <div><label for="xdrop">X-drop (em erros)</label><input id="xdrop" type="number" min="1" value="5"></div>
+      </div>
+      <div id="seedParams">
+        <div class="row3">
+          <div><label for="k">k</label><input id="k" type="number" min="2" max="15" value="4"></div>
+          <div><label for="win">janela (bp)</label><input id="win" type="number" min="2" value="6"></div>
+          <div><label for="dens">densidade</label><input id="dens" type="number" step="0.5" value="-1" title="ocorrências por base da read; -1 = todas"></div>
+        </div>
+        <label class="chk"><input type="checkbox" id="back" checked> passe para trás (usa a fita −)</label>
       </div>
       <label for="C">C, tangle effort (colunas por fatia; vazio = ilimitado)</label>
       <input id="C" type="number" min="1" placeholder="ilimitado">
       <label class="chk"><input type="checkbox" id="rev"> incluir a fita − (como o GraphAligner faz)</label>
       <label class="chk"><input type="checkbox" id="stored"> marcar o que o GraphAligner guarda</label>
-      <div style="margin-top:10px"><button id="runBtn">Executar</button></div>
+      <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+        <button id="runBtn">Executar</button>
+      </div>
+      <div class="inline" style="margin-top:8px">
+        <input id="saveName" placeholder="nome do seu exemplo">
+        <button class="sec small" id="saveBtn">salvar</button>
+      </div>
       <div class="err" id="err"></div>
+      <div class="info" id="info"></div>
+    </section>
+
+    <section class="panel" id="seedPanel">
+      <h2>Sementes e clusters</h2>
+      <div id="seeds" class="note">Escolha o modo "com sementes".</div>
     </section>
 
     <section class="panel">
@@ -138,9 +189,9 @@ details summary{cursor:pointer;font-weight:600}
       <div class="controls">
         <button class="sec" id="bFirst" title="início">⏮</button>
         <button class="sec" id="bPrevSlice" title="fatia anterior">◀◀</button>
-        <button class="sec" id="bPrev" title="passo anterior">◀</button>
+        <button class="sec" id="bPrev" title="passo anterior (←)">◀</button>
         <button id="bPlay">▶ tocar</button>
-        <button class="sec" id="bNext" title="próximo passo">▶</button>
+        <button class="sec" id="bNext" title="próximo passo (→)">▶</button>
         <button class="sec" id="bNextSlice" title="próxima fatia">▶▶</button>
         <button class="sec" id="bLast" title="fim">⏭</button>
         <input type="range" id="slider" min="0" max="0" value="0">
@@ -157,13 +208,15 @@ details summary{cursor:pointer;font-weight:600}
     </section>
 
     <section class="panel">
-      <h2>Matriz de DP (linhas = read, colunas = caracteres do grafo)</h2>
+      <h2>Matriz de DP <span id="passTag" class="passtag">passe para a frente</span></h2>
+      <div class="note" id="matrixNote">Linhas = read, colunas = caracteres do grafo.</div>
       <div class="legend">
         <span><i class="sw" style="background:var(--warn-soft)"></i>calculado na fatia atual</span>
         <span><i class="sw" style="background:var(--accent-soft)"></i>bloco na banda (segue para a próxima fatia)</span>
-        <span><i class="sw" style="background:repeating-linear-gradient(45deg,var(--pad),var(--pad) 3px,transparent 3px,transparent 6px)"></i>calculado, mas fora da banda</span>
+        <span><i class="sw" style="background:repeating-linear-gradient(45deg,var(--pad),var(--pad) 3px,transparent 3px,transparent 6px)"></i>fora da banda ou descartado pelo X-drop</span>
         <span><i class="sw" style="outline:2px solid var(--warn);outline-offset:-2px"></i>nó sendo calculado</span>
-        <span><i class="sw" style="background:var(--good)"></i>caminho do traceback</span>
+        <span><i class="sw" style="box-shadow:inset 0 0 0 2px var(--seed)"></i>semente (fim do k-mer)</span>
+        <span><i class="sw" style="background:var(--good)"></i>traceback</span>
         <span><i class="sw" style="box-shadow:inset 0 0 0 2px var(--good)"></i>guardado pelo GraphAligner</span>
       </div>
       <div class="scroll" id="matrixWrap"></div>
@@ -173,13 +226,15 @@ details summary{cursor:pointer;font-weight:600}
       <details>
         <summary>Como ler e como isso corresponde ao código</summary>
         <ul>
-          <li><b>Grafo:</b> cada nó GFA vira um nó por fita (no código, 2i para + e 2i+1 para −). Os nós são cortados nas sobreposições de entrada e em pedaços de no máximo w bases (<code>BigraphToDigraph.cpp</code>, <code>AlignmentGraph.cpp</code>, <code>SPLIT_NODE_SIZE = 64</code>).</li>
-          <li><b>Fatias:</b> a read é processada em blocos de w linhas (<code>getMultiseedSlices</code> / <code>getXdropSlices</code>). Um bloco = uma fatia × um nó.</li>
-          <li><b>Fila:</b> ordem por (componente topológica, prioridade), como a <code>ComponentPriorityQueue</code>. A prioridade de um nó empurrado é o <i>menor score alterado</i> da última coluna do nó que o empurrou (<code>changedMinScore</code>). Um nó já na fila não tem a prioridade reduzida.</li>
-          <li><b>Calcular um nó:</b> para cada in-vizinho já calculado na fatia, um passo de Myers a partir da última coluna dele; depois fusão pelo mínimo linha a linha (<code>calculateNodeInner</code>, <code>getNextSlice</code>, <code>mergeWith</code>). O painel de bits mostra o passo de Myers e confere com o DP comum.</li>
-          <li><b>Banda:</b> um nó empurra os vizinhos se o menor score alterado for ≤ mínimo corrente da linha de baixo + b; passa para a próxima fatia se o mínimo da sua linha de baixo for ≤ mínimo da fatia + b. Nós fora da banda chegam à próxima fatia com "∞" acima.</li>
-          <li><b>Modo local:</b> todo bloco recebe a "coluna de semente" (valor ≈ (linha+1)·(1−p)), que permite começar o alinhamento em qualquer linha (<code>getSeedSlice</code>). O fim é a célula de maior X = (linha+1) − c·score, com c = 1/(1−p). Aqui todo nó funciona como semente (como no modo sem sementes); o programa real só injeta a coluna nos nós das sementes.</li>
-          <li><b>Simplificações:</b> não há sementes nem passe para trás; o traceback é feito numa só direção; o X-drop não é aplicado; a "coluna de cima" e o +w de nós lineares do código não são reproduzidos.</li>
+          <li><b>Grafo:</b> cada nó GFA vira um nó por fita (no código, 2i para + e 2i+1 para −), cortado nas sobreposições de entrada e em pedaços de no máximo w bases (<code>BigraphToDigraph.cpp</code>, <code>AlignmentGraph.cpp</code>, <code>SPLIT_NODE_SIZE = 64</code>).</li>
+          <li><b>Sementes:</b> minimizers (k, janela) de cada nó orientado; consulta de <i>todos</i> os k-mers da read; ficam os menos frequentes até densidade × |read| ocorrências (−1 = todas) (<code>MinimizerSeeder.cpp</code>). A posição é a do fim do k-mer.</li>
+          <li><b>Clusters:</b> diagonal = posição linear aproximada do nó + offset − posição na read; um salto maior que 100 abre outro cluster; o valor do cluster é o número de bases da read cobertas (<code>clusterSeeds</code>). Simplificação: a posição linear vem de uma DFS por componente, não das cadeias de superbolhas. Um cluster é estendido por vez; escolha qual no painel de sementes.</li>
+          <li><b>Fatias e fila:</b> blocos de w linhas; a fila ordena por (componente topológica, prioridade), como a <code>ComponentPriorityQueue</code>, sem reduzir a prioridade de quem já está nela. Ajustes finos do código: pedaços não iniciais de um nó longo ganham +w na prioridade inicial se o pedaço anterior está na banda; um nó recalculado cuja primeira coluna não melhorou sai sem recalcular o resto (saída antecipada); semente entra com prioridade igual ao valor da coluna de semente na primeira linha da fatia.</li>
+          <li><b>Calcular um nó:</b> um passo de Myers a partir da última coluna de cada in-vizinho já calculado, depois fusão pelo mínimo (<code>calculateNodeInner</code>, <code>getNextSlice</code>, <code>mergeWith</code>). O painel de bits mostra o passo e confere com o DP comum.</li>
+          <li><b>Banda:</b> empurra vizinhos se o menor score alterado ≤ mínimo corrente da linha de baixo + b; segue para a próxima fatia se o mínimo da linha de baixo ≤ mínimo da fatia + b.</li>
+          <li><b>X-score e X-drop:</b> X = (linha + 1) − c·score, com c = 1/(1−p). A coluna de semente (≈ (linha+1)·(1−p)) permite começar em qualquer linha (<code>getSeedSlice</code>). Se o melhor X da fatia cair mais que X-drop·c abaixo do melhor já visto, a fatia é descartada; com sementes o DP continua (outra semente pode recomeçar), sem sementes ele para. O GraphAligner usa X-drop de 50 erros.</li>
+          <li><b>Passe para trás:</b> o fim do alinhamento é levado para a fita oposta e vira uma semente única sobre o complemento reverso da read. O alinhamento final vem desse segundo DP, convertido de volta (<code>getMultiseedTraces</code>).</li>
+          <li><b>Ainda simplificado:</b> um traceback por passe (o código escolhe vários máximos locais), sem MAPQ, sem heurística diploide, sem filtro de frequência de minimizers, cadeias por DFS.</li>
         </ul>
       </details>
     </section>
@@ -193,6 +248,9 @@ const PRESETS = [
   {name:'Bolha + ciclo + sobreposição', w:8, b:2, mode:'semi', rev:false,
    gfa:'S\t1\tACGTACGTAC\nS\t2\tGT\nS\t3\tTT\nS\t4\tACGA\nS\t5\tCA\nS\t6\tGATTC\nL\t1\t+\t2\t+\t0M\nL\t1\t+\t3\t+\t0M\nL\t2\t+\t4\t+\t0M\nL\t3\t+\t4\t+\t0M\nL\t4\t+\t5\t+\t0M\nL\t5\t+\t4\t+\t0M\nL\t4\t+\t6\t+\t2M',
    read:'ACGTAGGTACGTACGACAAACGATTC'},
+  {name:'Com sementes + passe para trás', w:8, b:2, mode:'seeds', rev:true, back:true, k:4, win:6, dens:-1,
+   gfa:'S\t1\tACGTACGTAC\nS\t2\tGT\nS\t3\tTT\nS\t4\tACGAGATTC\nL\t1\t+\t2\t+\t0M\nL\t1\t+\t3\t+\t0M\nL\t2\t+\t4\t+\t0M\nL\t3\t+\t4\t+\t0M',
+   read:'TTTTTACGTACGTTCGTACGAGATTCGGGG'},
   {name:'Linear (Myers puro)', w:8, b:2, mode:'semi', rev:false,
    gfa:'S\t1\tGATTACAGATTACACC', read:'TACAGATTGCA'},
   {name:'Bolha (fusão de colunas)', w:4, b:2, mode:'semi', rev:false,
@@ -202,19 +260,20 @@ const PRESETS = [
    gfa:'S\t1\tAACCGG\nS\t2\tTTGCA\nL\t1\t+\t2\t-\t0M', read:'AACCGGTGCAA'},
   {name:'Local com X-score (pontas ruins)', w:8, b:3, mode:'local', rev:false,
    gfa:'S\t1\tACGTACGTAC\nS\t2\tGT\nS\t3\tTT\nS\t4\tACGAGATTC\nL\t1\t+\t2\t+\t0M\nL\t1\t+\t3\t+\t0M\nL\t2\t+\t4\t+\t0M\nL\t3\t+\t4\t+\t0M',
-   read:'TTTTTACGTACGTACGTACGAGATTCGGGG'}
+   read:'TTTTTACGTACGTACGTACGAGATTCGGGG'},
+  {name:'X-drop (lixo no meio da read)', w:4, b:2, mode:'seeds', rev:true, back:true, k:4, win:5, dens:-1, xdrop:3,
+   gfa:'S\t1\tACGTTGCAAGT\nS\t2\tCCATGGATCCA', read:'ACGTTGCAAGTTTTTTTTTTTTTTTTCCATGGATCCA'}
 ];
 
-function revcomp(s){
-  const m={A:'T',C:'G',G:'C',T:'A',N:'N'};
-  return s.split('').reverse().map(ch=>m[ch]||'N').join('');
-}
+const COMP={A:'T',C:'G',G:'C',T:'A',N:'N'};
+function revcomp(s){ return s.split('').reverse().map(ch=>COMP[ch]||'N').join(''); }
 function charMatch(a,b){ if(a==='-'||b==='-') return false; return a===b||a==='N'||b==='N'; }
+function flip(o){return o==='+'?'-':'+';}
 
 function parseGFA(text){
   const segs=[], links=[], names=new Map();
   text.split(/\r?\n/).forEach((line,li)=>{
-    const t=line.trim(); if(!t) return;
+    const t=line.trim(); if(!t||t[0]==='#') return;
     const f=t.split(/\s+/);
     if(f[0]==='S'){
       if(f.length<3) throw new Error('Linha '+(li+1)+': S precisa de nome e sequência');
@@ -223,23 +282,21 @@ function parseGFA(text){
       if(names.has(f[1])) throw new Error('Linha '+(li+1)+': nó '+f[1]+' repetido');
       names.set(f[1],segs.length); segs.push({name:f[1],seq});
     } else if(f[0]==='L'){
-      if(f.length<6) throw new Error('Linha '+(li+1)+': L precisa de a, orient., b, orient., kM');
+      if(f.length<6) throw new Error('Linha '+(li+1)+': L precisa de: de, orientação, para, orientação, kM');
       const m=/^(\d+)M$/.exec(f[5]);
       if(!m) throw new Error('Linha '+(li+1)+': a sobreposição deve ser kM (ex.: 0M, 2M)');
-      if(!'+-'.includes(f[2])||!'+-'.includes(f[4])) throw new Error('Linha '+(li+1)+': orientação deve ser + ou −');
+      if(!'+-'.includes(f[2])||!'+-'.includes(f[4])) throw new Error('Linha '+(li+1)+': orientação deve ser + ou -');
       links.push({a:f[1],oa:f[2],b:f[3],ob:f[4],ov:+m[1],line:li+1});
     }
   });
   for(const l of links){
-    if(!names.has(l.a)||!names.has(l.b)) throw new Error('Linha '+l.line+': nó inexistente');
+    if(!names.has(l.a)||!names.has(l.b)) throw new Error('Linha '+l.line+': nó inexistente ('+(names.has(l.a)?l.b:l.a)+')');
     const la=segs[names.get(l.a)].seq.length, lb=segs[names.get(l.b)].seq.length;
     if(l.ov>=la||l.ov>=lb) throw new Error('Linha '+l.line+': a sobreposição precisa ser menor que os dois nós');
   }
   if(!segs.length) throw new Error('Nenhuma linha S');
   return {segs,links};
 }
-
-function flip(o){return o==='+'?'-':'+';}
 
 function buildGraph(gfa,w,includeRev){
   const oriented=new Map();
@@ -254,20 +311,21 @@ function buildGraph(gfa,w,includeRev){
     for(const e of [e1,e2]) oedges.set(e.from+'>'+e.to+'#'+e.ov,e);
   }
   const keep=k=>includeRev||k.endsWith('+');
-  const bps=new Map();
-  for(const [k,o] of oriented) bps.set(k,new Set([0,o.seq.length]));
-  for(const e of oedges.values()) bps.get(e.to).add(e.ov);
-  const nodes=[], startMap=new Map(), lastChunk=new Map();
+  const bps=new Map(), maxInOv=new Map();
+  for(const [k,o] of oriented){bps.set(k,new Set([0,o.seq.length]));maxInOv.set(k,0);}
+  for(const e of oedges.values()){bps.get(e.to).add(e.ov); maxInOv.set(e.to,Math.max(maxInOv.get(e.to),e.ov));}
+  const nodes=[], startMap=new Map(), lastChunk=new Map(), byKey=new Map(), keys=[], keySeq=new Map();
   for(const [k,o] of oriented){
     if(!keep(k)) continue;
+    keys.push(k); keySeq.set(k,o.seq); byKey.set(k,[]);
     const bp=[...bps.get(k)].sort((x,y)=>x-y);
     const sm=new Map(); let prev=-1;
     for(let i=0;i+1<bp.length;i++){
       for(let p=bp[i];p<bp[i+1];p+=w){
         const end=Math.min(p+w,bp[i+1]);
         const id=nodes.length;
-        nodes.push({id,key:k,name:o.name,strand:o.strand,start:p,end,seq:o.seq.slice(p,end),in:[],out:[]});
-        sm.set(p,id);
+        nodes.push({id,key:k,name:o.name,strand:o.strand,start:p,end,keyLen:o.seq.length,seq:o.seq.slice(p,end),in:[],out:[],lin:p>bp[i]});
+        sm.set(p,id); byKey.get(k).push(id);
         if(prev>=0){nodes[prev].out.push(id);nodes[id].in.push(prev);}
         prev=id;
       }
@@ -275,14 +333,16 @@ function buildGraph(gfa,w,includeRev){
     startMap.set(k,sm); lastChunk.set(k,prev);
   }
   const edgeSet=new Set();
-  const addEdge=(a,b)=>{const s=a+'>'+b; if(edgeSet.has(s)) return; edgeSet.add(s); nodes[a].out.push(b); nodes[b].in.push(a);};
   for(const n of nodes) for(const o of n.out) edgeSet.add(n.id+'>'+o);
+  const addEdge=(a,b)=>{const s=a+'>'+b; if(edgeSet.has(s)) return; edgeSet.add(s); nodes[a].out.push(b); nodes[b].in.push(a);};
+  const oedgesPresent=[];
   for(const e of oedges.values()){
     if(!keep(e.from)||!keep(e.to)) continue;
+    oedgesPresent.push(e);
     addEdge(lastChunk.get(e.from),startMap.get(e.to).get(e.ov));
   }
-  // Tarjan: componentes fortemente conexas, numeradas em ordem topológica
-  let idx=0; const stack=[], on=new Array(nodes.length).fill(false), index=new Array(nodes.length).fill(-1), low=new Array(nodes.length).fill(0);
+  // Tarjan: componentes fortemente conexas numeradas em ordem topológica
+  let idx=0; const stack=[], on=[], index=new Array(nodes.length).fill(-1), low=[];
   const sccs=[];
   function strong(v){
     index[v]=low[v]=idx++; stack.push(v); on[v]=true;
@@ -294,44 +354,114 @@ function buildGraph(gfa,w,includeRev){
   }
   for(const n of nodes) if(index[n.id]<0) strong(n.id);
   sccs.forEach((c,i)=>{for(const v of c){nodes[v].comp=sccs.length-1-i; nodes[v].cyclic=c.length>1||nodes[v].out.includes(v);}});
-  // camadas para o desenho: caminho mais longo ignorando arestas de retorno
+  // camadas para o desenho
   const state=new Array(nodes.length).fill(0), back=new Set();
   function dfs(v){state[v]=1;for(const u of nodes[v].out){if(state[u]===1)back.add(v+'>'+u);else if(state[u]===0)dfs(u);}state[v]=2;}
-  const order=[...nodes].sort((a,b)=>a.comp-b.comp||a.id-b.id).map(n=>n.id);
-  for(const v of order) if(!state[v]) dfs(v);
-  const layer=new Array(nodes.length).fill(0);
   const topo=[...nodes].sort((a,b)=>a.comp-b.comp||a.id-b.id).map(n=>n.id);
+  for(const v of topo) if(!state[v]) dfs(v);
+  const layer=new Array(nodes.length).fill(0);
   for(let it=0;it<nodes.length;it++) for(const v of topo) for(const u of nodes[v].out) if(!back.has(v+'>'+u)&&layer[u]<layer[v]+1) layer[u]=layer[v]+1;
   nodes.forEach(n=>{n.layer=layer[n.id];});
-  return {nodes,back};
+  return {nodes,back,byKey,keys,keySeq,oedges:oedgesPresent,maxInOv};
 }
 
-function label(n){return n.name+n.strand+(n.start>0||n.end<n.seq.length+n.start?'['+n.start+'..'+n.end+')':'');}
+function label(n){return n.name+n.strand+(n.start>0||n.end<n.keyLen?'['+n.start+'..'+n.end+')':'');}
+function chunkAt(graph,key,off){ const l=graph.byKey.get(key); if(!l) return null; for(const id of l){const n=graph.nodes[id]; if(off>=n.start&&off<n.end) return {v:id,c:off-n.start};} return null; }
+function revPos(graph,v,c){ const n=graph.nodes[v]; return chunkAt(graph,n.name+flip(n.strand),n.keyLen-1-(n.start+c)); }
+
+function hashKmer(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0;} h^=h>>>16; h=Math.imul(h,0x85ebca6b)>>>0; h^=h>>>13; h=Math.imul(h,0xc2b2ae35)>>>0; h^=h>>>16; return h>>>0; }
+
+function findSeeds(graph,read,P){
+  const k=P.k, win=Math.max(P.win,k), m=read.length;
+  const idx=new Map(), short=[], skippedOverlap=[];
+  for(const key of graph.keys){
+    const seq=graph.keySeq.get(key);
+    if(seq.length<win){short.push(key);continue;}
+    const ends=new Set();
+    for(let i=0;i+win<=seq.length;i++){
+      let best=Infinity; const hs=[];
+      for(let j=i;j+k<=i+win;j++){const h=hashKmer(seq.slice(j,j+k)); hs.push([h,j]); if(h<best) best=h;}
+      for(const [h,j] of hs) if(h===best) ends.add(j+k-1);
+    }
+    const minEnd=graph.maxInOv.get(key)||0;
+    for(const e of ends){
+      if(e<minEnd){skippedOverlap.push(key+':'+e);continue;}
+      const km=seq.slice(e-k+1,e+1);
+      if(!idx.has(km)) idx.set(km,[]);
+      idx.get(km).push({key,off:e});
+    }
+  }
+  const groups=[];
+  for(let r=k-1;r<m;r++){ const km=read.slice(r-k+1,r+1); if(idx.has(km)) groups.push({kmer:km,r,occ:idx.get(km)}); }
+  groups.sort((a,b)=>a.occ.length-b.occ.length||a.r-b.r);
+  const maxHits=P.dens<0?Infinity:P.dens*m;
+  const hits=[]; let lastCount=-1;
+  for(const g of groups){
+    if(hits.length>=maxHits&&g.occ.length!==lastCount) break;
+    for(const o of g.occ){ const ch=chunkAt(graph,o.key,o.off); hits.push({kmer:g.kmer,r:g.r,key:o.key,off:o.off,count:g.occ.length,v:ch.v,c:ch.c}); }
+    lastCount=g.occ.length;
+  }
+  // posição linear aproximada por DFS em cada componente (o código usa cadeias de superbolhas)
+  const outE=new Map(), inE=new Map();
+  for(const key of graph.keys){outE.set(key,[]);inE.set(key,[]);}
+  for(const e of graph.oedges){outE.get(e.from).push(e);inE.get(e.to).push(e);}
+  const pos=new Map(), chain=new Map(); let cid=0;
+  const len=key=>graph.keySeq.get(key).length;
+  for(const key of graph.keys){
+    if(pos.has(key)) continue;
+    const st=[[key,0]];
+    while(st.length){
+      const [x,p]=st.pop(); if(pos.has(x)) continue;
+      pos.set(x,p); chain.set(x,cid);
+      for(const e of outE.get(x)) st.push([e.to,p+len(x)-e.ov]);
+      for(const e of inE.get(x)) st.push([e.from,p-len(e.from)+e.ov]);
+    }
+    cid++;
+  }
+  for(const h of hits){h.chain=chain.get(h.key); h.diag=pos.get(h.key)+h.off-h.r;}
+  const sorted=[...hits].sort((a,b)=>a.chain-b.chain||a.diag-b.diag||a.r-b.r);
+  let clusters=[], curC=null;
+  for(const h of sorted){
+    if(!curC||curC.chain!==h.chain||h.diag-curC.lastDiag>100){curC={chain:h.chain,hits:[],lastDiag:h.diag};clusters.push(curC);}
+    curC.hits.push(h); curC.lastDiag=h.diag;
+  }
+  for(const c of clusters){ const cov=new Set(); for(const h of c.hits) for(let r=h.r-k+1;r<=h.r;r++) cov.add(r); c.goodness=cov.size; }
+  clusters.sort((a,b)=>b.goodness-a.goodness);
+  const maxExt=Math.max(1,P.maxExt||5);
+  if(clusters.length>maxExt){ const last=clusters[maxExt-1]; for(const c of clusters.slice(maxExt)) last.hits.push(...c.hits); last.goodness=0; last.merged=true; clusters=clusters.slice(0,maxExt); }
+  clusters.forEach((c,i)=>{c.id=i; for(const h of c.hits) h.cluster=i;});
+  return {hits,clusters,short,skippedOverlap,indexSize:[...idx.values()].reduce((a,b)=>a+b.length,0)};
+}
 
 function bottomMin(vals,w){let m=INF;for(const col of vals)m=Math.min(m,col[w-1]);return m;}
-function closure(col,top){ // termo vertical: col[r] = min(col[r], col[r-1]+1), col[-1] = top
-  const out=col.slice(); let prev=top;
-  for(let r=0;r<out.length;r++){out[r]=Math.min(out[r],prev+1,INF);prev=out[r];}
-  return out;
-}
+function closure(col,top){ const out=col.slice(); let prev=top; for(let r=0;r<out.length;r++){out[r]=Math.min(out[r],prev+1,INF);prev=out[r];} return out; }
 
-function runDP(graph,read,P){
+function runPass(graph,read,P,mode,seeds,pass){
   const {nodes}=graph, w=P.w, m=read.length;
   const nS=Math.ceil(m/w), rows=nS*w, q=read.padEnd(rows,'-');
-  const cC=1/(1-P.p);
-  const seedVal=y=>Math.round((y+1)/cC);
-  const events=[], blocks=[], carriedInto=[];
-  let carried=null;
-  const zeros=n=>new Array(n).fill(0);
-  const aboveOf=(s,v)=>{ if(s===0) return zeros(nodes[v].seq.length); const c=carriedInto[s].get(v); return c||null; };
+  const cC=1/(1-P.p), seedVal=y=>y<0?0:Math.round((y+1)/cC), xdrop=P.xdrop*cC;
+  const local=mode!=='semi';
+  const events=[], blocks=[], carriedInto=[], seedNodes=[], dropped=[];
+  const seedsBySlice=Array.from({length:nS},()=>[]);
+  if(mode==='seeds') for(const sd of seeds){ const s=Math.floor(sd.r/w); if(s<nS) seedsBySlice[s].push(sd); }
+  let carried=new Map(), prevMin=INF, bestX=-Infinity, stopped=false;
+  const aboveOf=(s,v)=>{ if(s===0) return mode==='seeds'?null:new Array(nodes[v].seq.length).fill(0); return carriedInto[s].get(v)||null; };
   for(let s=0;s<nS;s++){
-    const base=s*w;
-    carriedInto[s]=carried||new Map();
+    const base=s*w; carriedInto[s]=carried; const sn=new Set(); seedNodes[s]=sn;
+    if(stopped){blocks[s]=new Map(); continue;}
     const queue=new Map();
-    if(s===0) for(const n of nodes) queue.set(n.id,{comp:n.comp,prio:0});
-    else for(const [v,bot] of carried) queue.set(v,{comp:nodes[v].comp,prio:Math.min(...bot)});
+    const ins=(v,prio)=>{ if(!queue.has(v)) queue.set(v,{comp:nodes[v].comp,prio}); };
     const qsnap=()=>[...queue.entries()].map(([v,x])=>({v,comp:x.comp,prio:x.prio})).sort((a,b)=>a.comp-b.comp||a.prio-b.prio||a.v-b.v);
-    events.push({type:'slice',s,queue:qsnap(),carried:s===0?nodes.map(n=>n.id):[...carried.keys()]});
+    const lin=[];
+    if(s===0&&mode!=='seeds') for(const n of nodes) ins(n.id,0);
+    else for(const [v,bot] of carried){ const n=nodes[v]; const add=(n.lin&&carried.has(n.in[0]))?w:0; ins(v,Math.min(...bot)+add); if(add) lin.push(v); }
+    const seedAdmit=[];
+    for(const sd of seedsBySlice[s]){
+      const ok=s===0||prevMin>=INF||seedVal(base-1)<prevMin+P.b+w;
+      seedAdmit.push({v:sd.v,c:sd.c,r:sd.r,ok});
+      if(ok){ sn.add(sd.v); ins(sd.v,seedVal(base)); }
+    }
+    events.push({type:'slice',pass,s,queue:qsnap(),carried:[...carried.keys()],seeds:seedAdmit,lin,mode});
     const cur=new Map(); let curMin=INF, cells=0, tangled=false;
     while(queue.size){
       let best=null;
@@ -339,10 +469,10 @@ function runDP(graph,read,P){
       queue.delete(best.v);
       const v=best.v, node=nodes[v], len=node.seq.length;
       const A=aboveOf(s,v); const top=c=>A?A[c]:INF;
+      const hasSeed=mode==='local'||sn.has(v);
       const inputs=node.in.filter(u=>cur.has(u)).map(u=>{const uv=cur.get(u);const Au=aboveOf(s,u);return {u,col:uv[uv.length-1],aboveLeft:Au?Au[Au.length-1]:INF};});
-      if(!A&&!inputs.length){events.push({type:'pop',s,v,prio:best.prio,comp:best.comp,skipped:true,queue:qsnap()});continue;}
-      const vals=[], cands=[];
-      for(let c=0;c<len;c++){
+      if(!A&&!inputs.length&&!(local&&hasSeed)){events.push({type:'pop',pass,s,v,prio:best.prio,comp:best.comp,skipped:true,queue:qsnap()});continue;}
+      const colFor=(c,vals)=>{
         const ch=node.seq[c], mm=r=>charMatch(q[base+r],ch)?0:1;
         const lefts=c===0?inputs.map(i=>({col:i.col,aboveLeft:i.aboveLeft,from:'n'+i.u})):[{col:vals[c-1],aboveLeft:top(c-1),from:'esq'}];
         const list=[];
@@ -352,157 +482,254 @@ function runDP(graph,read,P){
           list.push({from:L.from,vals:closure(col,top(c)),left:L.col,aboveLeft:L.aboveLeft});
         }
         if(top(c)<INF) list.push({from:'cima',vals:closure(new Array(w).fill(INF),top(c))});
-        if(c===0&&base===0) list.push({from:'início',vals:closure([mm(0)].concat(new Array(w-1).fill(INF)),top(c))});
-        if(P.mode==='local') list.push({from:'semente',vals:closure(Array.from({length:w},(_,r)=>seedVal(base+r)),top(c))});
+        if(mode==='semi'&&c===0&&base===0) list.push({from:'início',vals:closure([mm(0)].concat(new Array(w-1).fill(INF)),top(c))});
+        if(local&&hasSeed) list.push({from:'semente',vals:closure(Array.from({length:w},(_,r)=>seedVal(base+r)),top(c))});
         const col=new Array(w).fill(INF);
         for(const x of list) for(let r=0;r<w;r++) col[r]=Math.min(col[r],x.vals[r]);
-        vals.push(col); cands.push(list);
-      }
+        return {col,list};
+      };
       const old=cur.get(v);
+      const first=colFor(0,[]);
+      if(old&&!first.col.some((x,r)=>x<old[0][r])){
+        cells+=Math.max(1,inputs.length);
+        events.push({type:'early',pass,s,v,prio:best.prio,comp:best.comp,inputs:inputs.map(i=>i.u),queue:qsnap(),cells});
+        if(P.C&&cells>P.C&&queue.size){tangled=true;queue.clear();events.push({type:'tangle',pass,s,cells,queue:[]});}
+        continue;
+      }
+      const vals=[first.col], cands=[first.list];
+      for(let c=1;c<len;c++){const x=colFor(c,vals);vals.push(x.col);cands.push(x.list);}
       const lastN=vals[len-1], lastO=old?old[len-1]:null;
       let changed=!old, chMin=INF;
       if(!old) chMin=Math.min(...lastN);
       else for(let r=0;r<w;r++) if(lastN[r]<lastO[r]){changed=true;chMin=Math.min(chMin,lastN[r]);}
-      // o bloco nunca piora: funde com o valor antigo
       if(old) for(let c=0;c<len;c++) for(let r=0;r<w;r++) vals[c][r]=Math.min(vals[c][r],old[c][r]);
       cur.set(v,vals); cells+=len;
       curMin=Math.min(curMin,bottomMin(vals,w));
       const pushes=[];
-      if(changed){
-        for(const u of node.out){
-          if(chMin<=curMin+P.b){
-            if(queue.has(u)) pushes.push({u,status:'já estava na fila'});
-            else {queue.set(u,{comp:nodes[u].comp,prio:chMin});pushes.push({u,status:'entrou com prioridade '+chMin});}
-          } else pushes.push({u,status:'não entrou: '+chMin+' > '+curMin+' + '+P.b});
-        }
+      if(changed) for(const u of node.out){
+        if(chMin<=curMin+P.b){
+          if(queue.has(u)) pushes.push({u,status:'já estava na fila'});
+          else {queue.set(u,{comp:nodes[u].comp,prio:chMin});pushes.push({u,status:'entrou com prioridade '+chMin});}
+        } else pushes.push({u,status:'não entrou: '+chMin+' > '+curMin+' + '+P.b});
       }
-      events.push({type:'compute',s,v,prio:best.prio,comp:best.comp,vals:vals.map(c=>c.slice()),cands,inputs:inputs.map(i=>i.u),aboveKnown:!!A,changed,chMin,curMin,pushes,queue:qsnap(),cells});
-      if(P.C&&cells>P.C&&queue.size){tangled=true;queue.clear();events.push({type:'tangle',s,cells,queue:[]});}
+      events.push({type:'compute',pass,s,v,prio:best.prio,comp:best.comp,vals:vals.map(c=>c.slice()),cands,inputs:inputs.map(i=>i.u),aboveKnown:!!A,seed:local&&hasSeed,changed,chMin,curMin,pushes,queue:qsnap(),cells});
+      if(P.C&&cells>P.C&&queue.size){tangled=true;queue.clear();events.push({type:'tangle',pass,s,cells,queue:[]});}
     }
     blocks[s]=cur;
     let sMin=INF; for(const vals of cur.values()) sMin=Math.min(sMin,bottomMin(vals,w));
-    carried=new Map(); const dropped=[];
-    for(const [v,vals] of cur){ if(bottomMin(vals,w)<=sMin+P.b) carried.set(v,vals.map(c=>c[w-1])); else dropped.push(v); }
-    events.push({type:'sliceEnd',s,sMin,carried:[...carried.keys()],dropped,tangled,queue:[]});
+    let sMaxX=-Infinity, xd=null;
+    if(local){
+      for(const vals of cur.values()) vals.forEach(col=>col.forEach((x,ri)=>{const r=base+ri; if(r<m&&x<INF) sMaxX=Math.max(sMaxX,(r+1)-cC*x);}));
+      if(cur.size){
+        if(sMaxX>bestX) bestX=sMaxX;
+        if(sMaxX<bestX-xdrop){ xd={sMaxX,bestX,limit:xdrop}; dropped[s]=true; if(mode==='seeds') bestX=0; else stopped=true; }
+      }
+    }
+    carried=new Map(); const out=[];
+    for(const [v,vals] of cur){ if(!xd&&bottomMin(vals,w)<=sMin+P.b) carried.set(v,vals.map(c=>c[w-1])); else out.push(v); }
+    prevMin=xd?INF:sMin;
+    events.push({type:'sliceEnd',pass,s,sMin,sMaxX,carried:[...carried.keys()],dropped:out,tangled,xdrop:xd,stopped,queue:[]});
   }
   carriedInto[nS]=carried;
   // ---------- fim e traceback ----------
-  const V=(v,c,r)=>{ if(r<0) return 0; const s=Math.floor(r/w); const b=blocks[s]&&blocks[s].get(v); return b?b[c][r-s*w]:INF; };
-  const Vup=(v,c,r)=>{ // valor usado como "linha acima" da linha r
-    if(r===0) return 0;
-    if(r%w!==0) return V(v,c,r-1);
-    const A=carriedInto[r/w].get(v); return A?A[c]:INF;
-  };
+  const V=(v,c,r)=>{ if(r<0) return mode==='seeds'?INF:0; const s=Math.floor(r/w); if(dropped[s]) return INF; const b=blocks[s]&&blocks[s].get(v); return b?b[c][r-s*w]:INF; };
+  const Vup=(v,c,r)=>{ if(r===0) return mode==='seeds'?INF:0; if(r%w!==0) return V(v,c,r-1); const A=carriedInto[r/w].get(v); return A?A[c]:INF; };
+  const seedAt=(v,r)=>mode==='local'||(mode==='seeds'&&seedNodes[Math.floor(r/w)].has(v));
   let end=null;
-  if(P.mode==='semi'){
+  if(mode==='semi'){
     const R=m-1, s=Math.floor(R/w);
     for(const [v,vals] of blocks[s]) vals.forEach((col,c)=>{const x=col[R-s*w]; if(!end||x<end.val) end={v,c,r:R,val:x};});
   } else {
-    for(let s=0;s<nS;s++) for(const [v,vals] of blocks[s]) vals.forEach((col,c)=>col.forEach((x,ri)=>{const r=s*w+ri; if(r>=m||x>=INF) return; const X=(r+1)-cC*x; if(!end||X>end.X+1e-9) end={v,c,r,val:x,X};}));
+    for(let s=0;s<nS;s++){ if(dropped[s]) continue; for(const [v,vals] of blocks[s]) vals.forEach((col,c)=>col.forEach((x,ri)=>{const r=s*w+ri; if(r>=m||x>=INF) return; const X=(r+1)-cC*x; if(X>0&&(!end||X>end.X+1e-9)) end={v,c,r,val:x,X};})); }
   }
   const path=[], ops=[]; let approx=false, startRow=0;
   if(end){
     let {v,c,r}=end; let guard=0;
-    while(r>=0&&guard++<10000){
+    while(r>=0&&guard++<20000){
       const val=V(v,c,r);
       const ch=nodes[v].seq[c], mm=charMatch(q[r],ch)?0:1;
       const lefts=c>0?[{v,c:c-1}]:nodes[v].in.map(u=>({v:u,c:nodes[u].seq.length-1}));
-      const diagFrom=L=>Vup(L.v,L.c,r);
-      let moved=false;
       const cand=[];
-      for(const L of lefts) cand.push({kind:mm?'X':'=',val:diagFrom(L)+mm,next:{v:L.v,c:L.c,r:r-1}});
-      if(r===0) cand.push({kind:mm?'X':'=',val:mm,next:null});
+      for(const L of lefts) cand.push({kind:mm?'X':'=',val:Vup(L.v,L.c,r)+mm,next:{v:L.v,c:L.c,r:r-1}});
+      if(r===0&&mode!=='seeds') cand.push({kind:mm?'X':'=',val:mm,next:null});
       cand.push({kind:'I',val:Vup(v,c,r)+1,next:{v,c,r:r-1}});
       for(const L of lefts) cand.push({kind:'D',val:V(L.v,L.c,r)+1,next:{v:L.v,c:L.c,r}});
-      let pick=cand.find(x=>x.val===val);
-      if(!pick&&P.mode==='local'&&val===seedVal(r)){
-        // começa pela coluna de semente; se a célula casa, ela é o 1º casamento do alinhamento
-        if(mm===0&&(r===0?0:seedVal(r-1))===val){path.push({v,c,r});ops.push('=');startRow=r;} else startRow=r+1;
+      let pick=cand.find(x=>x.val===val&&(x.kind==='='||x.kind==='X'));
+      if(!pick&&local&&seedAt(v,r)&&val===seedVal(r)){
+        if(mm===0){path.push({v,c,r});ops.push('=');startRow=r;} else startRow=r+1; // a célula de partida casa: entra como 1º casamento
         break;
       }
+      if(!pick) pick=cand.find(x=>x.val===val);
       if(!pick){approx=true;pick=cand.reduce((a,b)=>b.val<a.val?b:a);}
       path.push({v,c,r}); ops.push(pick.kind);
-      if(!pick.next){startRow=0;break;}
-      if(pick.next.r<0){startRow=0;break;}
+      if(!pick.next||pick.next.r<0){startRow=pick.kind==='D'?r:0;break;}
       ({v,c,r}=pick.next);
     }
   }
   ops.reverse(); path.reverse();
-  events.push({type:'result',end,path,ops,approx,startRow,m,cC,mode:P.mode,queue:[]});
-  return {events,nS,rows,q,cC,seedVal,carriedInto};
+  let trimmed=0;
+  if(local) while(ops.length>1&&ops[0]!=='='){ const o=ops.shift(); path.shift(); if(o!=='D') startRow++; trimmed++; } // como o código: tira erros no início
+  const result={end,path,ops,approx,startRow,m,cC,mode,trimmed};
+  events.push({type:'result',pass,...result,queue:[]});
+  return {events,nS,rows,q,cC,seedVal,carriedInto,blocks,seedNodes,dropped,result,mode,seeds};
+}
+
+function runAll(graph,read,P){
+  let seedInfo=null, seeds=[];
+  const pre=[];
+  if(P.mode==='seeds'){
+    seedInfo=findSeeds(graph,read,P);
+    const cl=seedInfo.clusters[Math.min(P.cluster||0,seedInfo.clusters.length-1)];
+    if(cl){ const seen=new Set(); for(const h of cl.hits){const key=Math.floor(h.r/P.w)+'|'+h.v; if(seen.has(key)) continue; seen.add(key); seeds.push({v:h.v,c:h.c,r:h.r});} }
+    pre.push({type:'seeds',pass:0,s:0,info:seedInfo,chosen:cl?cl.id:-1,nSeeds:seeds.length,queue:[]});
+  }
+  const p0=runPass(graph,read,P,P.mode,seeds,0);
+  const passes=[p0]; let events=pre.concat(p0.events), final=null, backInfo=null;
+  if(P.back&&P.mode!=='semi'&&p0.result.end){
+    const e=p0.result.end, rp=revPos(graph,e.v,e.c);
+    if(rp){
+      const rread=revcomp(read), m=read.length, r2=m-1-e.r;
+      backInfo={from:e,to:{v:rp.v,c:rp.c,r:r2}};
+      const p1=runPass(graph,rread,P,'seeds',[{v:rp.v,c:rp.c,r:r2}],1);
+      passes.push(p1);
+      events.push({type:'back',pass:1,s:Math.floor(r2/P.w),info:backInfo,queue:[]});
+      events=events.concat(p1.events);
+      const R=p1.result;
+      if(R.end){
+        const path=R.path.map(p=>{const f=revPos(graph,p.v,p.c);return {v:f.v,c:f.c,r:m-1-p.r};}).reverse();
+        final={path,ops:R.ops.slice().reverse(),startRow:m-1-R.end.r,endRow:m-1-R.startRow,cC:p1.cC,X:R.end.X};
+      }
+    }
+  } else if(p0.result.end){
+    const R=p0.result; final={path:R.path,ops:R.ops,startRow:R.startRow,endRow:R.end.r,cC:p0.cC,X:R.end.X,val:R.end.val};
+  }
+  events.push({type:'final',pass:passes.length-1,s:0,final,queue:[]});
+  return {passes,events,seedInfo,final,backInfo,seeds};
 }
 // CORE-END
 
 // ---------------- interface ----------------
 const $=id=>document.getElementById(id);
 let G=null, RUN=null, step=0, timer=null, sel=null, PARAMS=null, READ='';
+const STORE='ga-viz-exemplos';
+function loadSaved(){ try{ return JSON.parse(localStorage.getItem(STORE)||'[]'); }catch(e){ return []; } }
+function storeSaved(list){ try{ localStorage.setItem(STORE,JSON.stringify(list)); return true; }catch(e){ return false; } }
 
-function fillPresets(){
-  PRESETS.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=p.name;$('preset').appendChild(o);});
-  $('preset').onchange=()=>loadPreset(+$('preset').value);
+function fillPresets(sel){
+  const s=$('preset'); s.innerHTML='';
+  const g1=document.createElement('optgroup'); g1.label='Prontos';
+  PRESETS.forEach((p,i)=>{const o=document.createElement('option');o.value='p'+i;o.textContent=p.name;g1.appendChild(o);});
+  s.appendChild(g1);
+  const saved=loadSaved();
+  if(saved.length){ const g2=document.createElement('optgroup'); g2.label='Meus exemplos'; saved.forEach((p,i)=>{const o=document.createElement('option');o.value='s'+i;o.textContent=p.name;g2.appendChild(o);}); s.appendChild(g2); }
+  if(sel) s.value=sel;
+  $('delSaved').disabled=!s.value.startsWith('s');
 }
-function loadPreset(i){
-  const p=PRESETS[i];
-  $('gfa').value=p.gfa; $('read').value=p.read; $('w').value=String(p.w); $('b').value=p.b; $('mode').value=p.mode; $('rev').checked=p.rev;
-  execute();
+function applyCfg(p){
+  $('gfa').value=p.gfa; $('read').value=p.read; $('w').value=String(p.w||8); $('b').value=p.b??2; $('mode').value=p.mode||'semi'; $('rev').checked=!!p.rev;
+  $('k').value=p.k||4; $('win').value=p.win||6; $('dens').value=p.dens??-1; $('back').checked=p.back!==false; $('xdrop').value=p.xdrop||5;
+  if(p.p) $('p').value=p.p; $('C').value=p.C||'';
 }
+function currentCfg(name){
+  return {name,gfa:$('gfa').value,read:$('read').value,w:+$('w').value,b:+$('b').value,mode:$('mode').value,rev:$('rev').checked,k:+$('k').value,win:+$('win').value,dens:+$('dens').value,back:$('back').checked,xdrop:+$('xdrop').value,p:+$('p').value,C:$('C').value};
+}
+function pickPreset(){
+  const v=$('preset').value; $('delSaved').disabled=!v.startsWith('s');
+  const p=v.startsWith('p')?PRESETS[+v.slice(1)]:loadSaved()[+v.slice(1)];
+  if(p){ applyCfg(p); PARAMS_CLUSTER=0; execute(); }
+}
+let PARAMS_CLUSTER=0;
+
+function toggleSeedParams(){ $('seedParams').style.display=$('mode').value==='semi'?'none':''; $('k').parentElement.parentElement.style.display=$('mode').value==='seeds'?'':'none'; }
 
 function execute(){
-  stop(); $('err').textContent='';
+  toggleSeedParams(); stop(); $('err').textContent=''; $('info').textContent='';
   try{
     const gfa=parseGFA($('gfa').value);
     const read=$('read').value.trim().toUpperCase();
     if(!/^[ACGTN]+$/.test(read)) throw new Error('A read deve ter só A, C, G, T, N');
+    const mode=$('mode').value;
     const w=+$('w').value, b=Math.max(0,+$('b').value||0), p=Math.min(0.99,Math.max(0.51,+$('p').value||0.66));
     const C=$('C').value?Math.max(1,+$('C').value):0;
+    const back=$('back').checked&&mode!=='semi';
+    if(back&&!$('rev').checked){ $('rev').checked=true; $('info').textContent='A fita − foi incluída porque o passe para trás precisa dela.'; }
+    const k=Math.max(2,Math.min(15,+$('k').value||4)), win=Math.max(k,+$('win').value||k), dens=+$('dens').value, xdrop=Math.max(1,+$('xdrop').value||5);
     G=buildGraph(gfa,w,$('rev').checked);
-    if(G.nodes.length>60) throw new Error('Grafo grande demais para visualizar ('+G.nodes.length+' nós). Use grafos menores.');
-    if(read.length>80) throw new Error('Read longa demais para visualizar (máx. 80).');
-    PARAMS={w,b,p,C,mode:$('mode').value}; READ=read;
-    RUN=runDP(G,read,PARAMS);
+    if(G.nodes.length>80) throw new Error('Grafo grande demais para visualizar ('+G.nodes.length+' nós). Use grafos menores.');
+    if(read.length>90) throw new Error('Read longa demais para visualizar (máx. 90).');
+    PARAMS={w,b,p,C,mode,k,win,dens,xdrop,back,cluster:PARAMS_CLUSTER,maxExt:5}; READ=read;
+    RUN=runAll(G,read,PARAMS);
     sel=null; step=0;
     $('slider').max=RUN.events.length-1; $('slider').value=0;
     render();
-  }catch(e){ $('err').textContent=e.message; }
+  }catch(e){ $('err').textContent=e.message; console.error(e); }
 }
 
 function stateAt(k){
-  const st={blocks:[],sliceDone:[],carried:[],dropped:[],cur:null,curSlice:0,ev:RUN.events[k],queue:[],result:null,inQueue:new Set()};
+  const ev=RUN.events[k], pass=ev.pass||0;
+  const st={pass,blocks:[],sliceDone:[],carried:[],dropped:[],xdropped:[],cur:null,curSlice:ev.s||0,ev,queue:ev.queue||[],result:null,final:null,inQueue:new Set(),seedNow:new Set()};
   for(let i=0;i<=k;i++){
     const e=RUN.events[i];
-    st.curSlice=e.s!==undefined?e.s:st.curSlice;
-    if(e.type==='slice'){st.blocks[e.s]=new Map();}
+    if(e.type==='final') st.final=e.final;
+    if((e.pass||0)!==pass) continue;
+    if(e.type==='slice'){st.blocks[e.s]=new Map(); st.curSlice=e.s;}
     if(e.type==='compute'){st.blocks[e.s].set(e.v,{vals:e.vals,cands:e.cands,ev:e});}
-    if(e.type==='sliceEnd'){st.sliceDone[e.s]=true;st.carried[e.s]=new Set(e.carried);st.dropped[e.s]=new Set(e.dropped);}
+    if(e.type==='sliceEnd'){st.sliceDone[e.s]=true;st.carried[e.s]=new Set(e.carried);st.dropped[e.s]=new Set(e.dropped);if(e.xdrop) st.xdropped[e.s]=true;}
     if(e.type==='result') st.result=e;
+    if(e.s!==undefined&&e.type!=='seeds'&&e.type!=='back') st.curSlice=e.s;
   }
-  const e=st.ev;
-  st.cur=(e.type==='compute'||e.type==='pop')?e.v:null;
-  st.queue=e.queue||[]; st.queue.forEach(x=>st.inQueue.add(x.v));
+  st.cur=(ev.type==='compute'||ev.type==='pop'||ev.type==='early')?ev.v:null;
+  st.queue.forEach(x=>st.inQueue.add(x.v));
+  const ps=RUN.passes[pass]; if(ps&&ps.seedNodes[st.curSlice]&&RUN.events.slice(0,k+1).some(e=>(e.pass||0)===pass&&e.type==='slice'&&e.s===st.curSlice)) for(const v of ps.seedNodes[st.curSlice]) st.seedNow.add(v);
   return st;
 }
 
+function N(v){return label(G.nodes[v])+' (n'+v+')';}
 function describe(e){
-  const N=v=>label(G.nodes[v])+' (n'+v+')';
-  const rowsTxt=s=>'linhas '+(s*PARAMS.w)+'–'+(s*PARAMS.w+PARAMS.w-1);
+  const w=PARAMS.w, rowsTxt=s=>'linhas '+(s*w)+'–'+(s*w+w-1);
   switch(e.type){
-    case 'slice': return 'Fatia '+e.s+' ('+rowsTxt(e.s)+'). '+(e.s===0?'Na primeira fatia todos os nós entram na fila com prioridade 0: o alinhamento pode começar em qualquer posição do grafo.':'Entram na fila os nós que ficaram na banda na fatia anterior ('+e.carried.map(N).join(', ')+'), com prioridade = mínimo da linha de baixo deles.');
-    case 'pop': return 'Sai da fila '+N(e.v)+'. Nenhum in-vizinho calculado nesta fatia e nada acima dentro da banda: nada a calcular.';
+    case 'seeds': {
+      const I=e.info;
+      if(!I.hits.length) return 'Sementes: nenhum k-mer da read casou com minimizers do grafo. Sem sementes, não há extensão. Tente k menor, janela menor ou densidade −1.';
+      return 'Sementes: '+I.hits.length+' ocorrências de minimizers na read, em '+I.clusters.length+' cluster(s). Estendendo o cluster '+(e.chosen+1)+', que dá '+e.nSeeds+' semente(s) do tipo (fatia, nó). Cada uma entra na fila na fatia que contém sua posição na read. Veja o painel de sementes.';
+    }
+    case 'slice': {
+      let t='Fatia '+e.s+' ('+rowsTxt(e.s)+') do passe '+(e.pass?'para trás':'para a frente')+'. ';
+      if(e.s===0&&e.mode!=='seeds') t+='Todos os nós entram na fila com prioridade 0: o alinhamento pode começar em qualquer posição do grafo.';
+      else if(e.carried.length) t+='Entram na fila os nós que ficaram na banda na fatia anterior ('+e.carried.map(N).join(', ')+'), com prioridade = mínimo da linha de baixo.';
+      else t+='Nenhum nó veio da fatia anterior.';
+      if(e.lin&&e.lin.length) t+='\nAjuste fino: '+e.lin.map(N).join(', ')+' ganham +'+w+' na prioridade (pedaço não inicial de um nó longo, com o pedaço anterior na banda), para não serem calculados duas vezes.';
+      if(e.seeds&&e.seeds.length) t+='\nSementes nesta fatia: '+e.seeds.map(s=>N(s.v)+(s.ok?' entra':' recusada (longe demais da banda)')).join('; ')+'. Semente entra com prioridade = valor da coluna de semente na 1ª linha.';
+      return t;
+    }
+    case 'pop': return 'Sai da fila '+N(e.v)+'. Nenhum in-vizinho calculado nesta fatia, nada acima dentro da banda e nenhuma semente: nada a calcular.';
+    case 'early': return 'Sai da fila '+N(e.v)+' de novo. A nova primeira coluna não é melhor em nenhuma linha que a já calculada: saída antecipada, o resto do bloco não é recalculado e os vizinhos não são empurrados (ajuste fino do código).';
     case 'compute': {
       let t='Sai da fila '+N(e.v)+' (componente '+e.comp+', prioridade '+e.prio+').\n';
-      t+='Entradas: '+(e.inputs.length?'última coluna de '+e.inputs.map(N).join(' e '):'nenhum in-vizinho calculado ainda')+(e.aboveKnown?'; linha acima conhecida.':'; linha acima fora da banda (∞).');
+      t+='Entradas: '+(e.inputs.length?'última coluna de '+e.inputs.map(N).join(' e '):'nenhum in-vizinho calculado ainda')+(e.aboveKnown?'; linha acima conhecida':'; linha acima fora da banda (∞)')+(e.seed?'; coluna de semente fundida':'')+'.';
       if(e.inputs.length>1) t+='\nFusão: '+e.inputs.length+' colunas candidatas na primeira coluna, mínimo linha a linha.';
       t+='\n'+(e.changed?'A última coluna mudou; menor score alterado = '+e.chMin+'; mínimo corrente da linha de baixo = '+e.curMin+'.':'A última coluna não mudou: os vizinhos não são empurrados.');
       if(e.pushes.length) t+='\nVizinhos: '+e.pushes.map(p=>N(p.u)+' '+p.status).join('; ')+'.';
       return t;
     }
     case 'tangle': return 'Tangle effort atingido ('+e.cells+' colunas > C). A fila é esvaziada e a fatia fica como está.';
-    case 'sliceEnd': return 'Fim da fatia '+e.s+'. Mínimo da linha de baixo = '+e.sMin+'. Seguem na banda (≤ '+e.sMin+' + '+PARAMS.b+'): '+(e.carried.map(N).join(', ')||'nenhum')+'.'+(e.dropped.length?' Saem: '+e.dropped.map(N).join(', ')+'.':'');
-    case 'result': {
-      if(!e.end) return 'Nenhum alinhamento encontrado.';
-      const where='nó '+N(e.end.v)+', coluna '+e.end.c+', linha '+e.end.r;
-      return (e.mode==='semi'?'Fim: menor valor da última linha da read ('+e.end.val+') em '+where+'.':'Fim: maior X-score ('+e.end.X.toFixed(2)+') em '+where+'.')+'\nTraceback: '+e.ops.length+' operações'+(e.approx?' (com passos aproximados por causa da banda)':'')+'. O caminho está em verde.';
+    case 'sliceEnd': {
+      let t='Fim da fatia '+e.s+'. Mínimo da linha de baixo = '+(e.sMin>=INF?'∞':e.sMin)+'.';
+      if(isFinite(e.sMaxX)) t+=' Melhor X-score na fatia = '+e.sMaxX.toFixed(2)+'.';
+      if(e.xdrop) t+='\nX-drop: '+e.sMaxX.toFixed(2)+' < '+e.xdrop.bestX.toFixed(2)+' − '+e.xdrop.limit.toFixed(2)+'. A fatia é descartada'+(e.stopped?' e o DP para (modo sem sementes).':'; com sementes o DP continua e o recorde volta a 0, para que outra semente possa recomeçar.');
+      else t+=' Seguem na banda (≤ '+e.sMin+' + '+PARAMS.b+'): '+(e.carried.map(N).join(', ')||'nenhum')+'.'+(e.dropped.length?' Saem: '+e.dropped.map(N).join(', ')+'.':'');
+      return t;
     }
+    case 'result': {
+      if(!e.end) return 'Passe '+(e.pass?'para trás':'para a frente')+': nenhum alinhamento'+(e.mode==='semi'?'.':' com X-score positivo (identidade acima de p).');
+      const where=N(e.end.v)+', coluna '+e.end.c+', linha '+e.end.r;
+      return 'Passe '+(e.pass?'para trás':'para a frente')+' terminado. '+(e.mode==='semi'?'Fim: menor valor da última linha da read ('+e.end.val+') em '+where+'.':'Fim: maior X-score ('+e.end.X.toFixed(2)+') em '+where+'.')+'\nTraceback: '+e.ops.length+' operações'+(e.approx?' (com passos aproximados por causa da banda)':'')+', em verde.'+(e.trimmed?' '+e.trimmed+' erro(s) no início do alinhamento foram cortados, como o código faz.':'');
+    }
+    case 'back': {
+      const f=e.info.from, t=e.info.to;
+      return 'Passe para trás. O fim do passe para a frente ('+N(f.v)+', coluna '+f.c+', linha '+f.r+') é levado para a fita oposta: '+N(t.v)+', coluna '+t.c+'. A read vira o complemento reverso, e essa posição vira uma semente única na linha '+t.r+'. O mesmo DP roda de novo; o fim dele é o início do alinhamento final.';
+    }
+    case 'final': return e.final?'Alinhamento final pronto (painel Resultado).'+(PARAMS.back&&PARAMS.mode!=='semi'?' Ele vem do passe para trás, convertido de volta para a fita e as coordenadas originais.':''):'Nenhum alinhamento final.';
   }
   return '';
 }
@@ -514,18 +741,23 @@ function render(){
   $('slider').value=step;
   $('msg').textContent=describe(e);
   $('queue').innerHTML=st.queue.length?'<b>Fila</b> (componente, prioridade): '+st.queue.map(x=>'n'+x.v+' ('+x.comp+', '+x.prio+')').join('  '):'<b>Fila</b>: vazia';
-  renderGraph(st); renderMatrix(st); renderBits(st); renderResult(st);
+  const back=st.pass===1;
+  $('passTag').textContent=back?'passe para trás (complemento reverso da read)':'passe para a frente';
+  $('passTag').className='passtag'+(back?' back':'');
+  renderGraph(st); renderMatrix(st); renderBits(st); renderSeeds(); renderResult(st);
 }
 
 function renderGraph(st){
-  const svg=$('graph'), nodes=G.nodes, cw=8.4, colW=Math.max(PARAMS.w*cw+16,...nodes.map(n=>('n'+n.id+' · '+label(n)).length*6.7+14))+50, rowH=62;
+  const svg=$('graph'), nodes=G.nodes, cw=8.4, rowH=62;
+  const lw=n=>Math.max(n.seq.length*cw+16,('n'+n.id+' · '+label(n)).length*6.7+14);
+  const colW=Math.max(...nodes.map(lw))+50;
   const byLayer=new Map();
   for(const n of [...nodes].sort((a,b)=>(a.strand===b.strand?0:a.strand==='+'?-1:1)||a.id-b.id)){
     const key=n.strand+n.layer; if(!byLayer.has(key)) byLayer.set(key,[]); byLayer.get(key).push(n);
   }
   let maxPlus=0; for(const [k,l] of byLayer) if(k[0]==='+') maxPlus=Math.max(maxPlus,l.length);
   const pos=[];
-  for(const [k,l] of byLayer) l.forEach((n,i)=>{const y0=k[0]==='+'?0:(maxPlus*rowH+40);pos[n.id]={x:20+n.layer*colW,y:20+y0+i*rowH,w:Math.max(n.seq.length*cw+16,('n'+n.id+' · '+label(n)).length*6.7+14),h:40};});
+  for(const [k,l] of byLayer) l.forEach((n,i)=>{const y0=k[0]==='+'?0:(maxPlus*rowH+40);pos[n.id]={x:20+n.layer*colW,y:20+y0+i*rowH,w:lw(n),h:40};});
   const W=Math.max(...pos.map(p=>p.x+p.w))+30, H=Math.max(...pos.map(p=>p.y+p.h))+30;
   svg.setAttribute('width',W); svg.setAttribute('height',H); svg.setAttribute('viewBox','0 0 '+W+' '+H);
   const css=getComputedStyle(document.documentElement), col=n=>css.getPropertyValue(n).trim();
@@ -537,9 +769,7 @@ function renderGraph(st){
     if(G.back.has(n.id+'>'+u)||b.x<=a.x){
       const x1=a.x+a.w/2,y1=a.y,x2=b.x+b.w/2,y2=b.y, cy=Math.min(y1,y2)-26;
       h+='<path d="M'+x1+' '+y1+' C'+x1+' '+cy+' '+x2+' '+cy+' '+x2+' '+y2+'" fill="none" stroke="'+col('--quiet')+'" stroke-width="1.3" marker-end="url(#ar)"/>';
-    } else {
-      h+='<path d="M'+(a.x+a.w)+' '+(a.y+a.h/2)+' L'+(b.x-2)+' '+(b.y+b.h/2)+'" fill="none" stroke="'+col('--quiet')+'" stroke-width="1.3" marker-end="url(#ar)"/>';
-    }
+    } else h+='<path d="M'+(a.x+a.w)+' '+(a.y+a.h/2)+' L'+(b.x-2)+' '+(b.y+b.h/2)+'" fill="none" stroke="'+col('--quiet')+'" stroke-width="1.3" marker-end="url(#ar)"/>';
   }
   for(const n of nodes){
     const p=pos[n.id];
@@ -550,32 +780,43 @@ function renderGraph(st){
     if(st.result&&pathNodes.has(n.id)){stroke=col('--good');sw=2.6;dash='';}
     h+='<g><rect x="'+p.x+'" y="'+p.y+'" width="'+p.w+'" height="'+p.h+'" rx="7" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+sw+'"'+dash+'/>';
     h+='<text x="'+(p.x+p.w/2)+'" y="'+(p.y+15)+'" text-anchor="middle" font-size="11" fill="'+col('--quiet')+'">n'+n.id+' · '+label(n)+'</text>';
-    h+='<text x="'+(p.x+p.w/2)+'" y="'+(p.y+32)+'" text-anchor="middle" font-size="13" font-weight="600" fill="'+col('--ink')+'">'+n.seq+'</text></g>';
+    h+='<text x="'+(p.x+p.w/2)+'" y="'+(p.y+32)+'" text-anchor="middle" font-size="13" font-weight="600" fill="'+col('--ink')+'">'+n.seq+'</text>';
+    if(st.seedNow.has(n.id)) h+='<circle cx="'+(p.x+p.w-6)+'" cy="'+(p.y+6)+'" r="5" fill="'+col('--seed')+'"/>';
+    h+='</g>';
   }
   if(nodes.some(n=>n.strand==='-')) h+='<text x="20" y="'+(maxPlus*rowH+50)+'" font-size="11" fill="'+col('--quiet')+'">fita − (complemento reverso)</text>';
   svg.innerHTML=h;
   const cyc=nodes.filter(n=>n.cyclic).map(n=>'n'+n.id);
-  $('graphNote').textContent=nodes.length+' nós, componentes numeradas em ordem topológica'+(cyc.length?'; em ciclo: '+cyc.join(', '):'')+'. Borda tracejada = na fila; laranja = sendo calculado; verde = caminho final.';
+  $('graphNote').textContent=nodes.length+' nós, componentes em ordem topológica'+(cyc.length?'; em ciclo: '+cyc.join(', '):'')+'. Tracejado = na fila; laranja = sendo calculado; verde = caminho do traceback deste passe; bolinha roxa = semente na fatia atual.';
 }
 
 function colOrder(){ return [...G.nodes].sort((a,b)=>(a.strand===b.strand?0:a.strand==='+'?-1:1)||a.layer-b.layer||a.id-b.id); }
 
+function seedCells(pass){
+  const set=new Set(), ps=RUN.passes[pass]; if(!ps||ps.mode!=='seeds') return set;
+  if(pass===0&&RUN.seedInfo){ const ch=RUN.seedInfo.clusters[Math.min(PARAMS.cluster,RUN.seedInfo.clusters.length-1)]; if(ch) for(const h of ch.hits) set.add(h.v+'|'+h.c+'|'+h.r); }
+  else for(const sd of ps.seeds) set.add(sd.v+'|'+sd.c+'|'+sd.r);
+  return set;
+}
+
 function renderMatrix(st){
-  const w=PARAMS.w, order=colOrder(), q=RUN.q, m=READ.length;
+  const w=PARAMS.w, order=colOrder(), ps=RUN.passes[st.pass], q=ps.q, m=READ.length;
   const pathSet=new Set(st.result&&st.result.path?st.result.path.map(p=>p.v+'|'+p.c+'|'+p.r):[]);
+  const seeds=seedCells(st.pass);
   const storedOn=$('stored').checked;
+  $('matrixNote').textContent=st.pass===1?'Linhas = complemento reverso da read (a linha r aqui é a linha '+(m-1)+' − r da read original). Colunas = caracteres do grafo.':'Linhas = read, colunas = caracteres do grafo. Fatias separadas por linhas grossas.';
   let h='<table class="dp"><thead><tr><th></th>';
   for(const n of order) h+='<th class="nodeh" colspan="'+n.seq.length+'">n'+n.id+' '+label(n)+'</th>';
   h+='</tr><tr><th style="top:21px"></th>';
   for(const n of order) for(const ch of n.seq) h+='<th style="top:21px">'+ch+'</th>';
   h+='</tr></thead><tbody>';
-  for(let r=0;r<RUN.rows;r++){
+  for(let r=0;r<ps.rows;r++){
     const s=Math.floor(r/w), ri=r-s*w, pad=r>=m;
     h+='<tr'+(ri===0?' class="sliceTop"':'')+'><td class="rl'+(pad?' padrow':'')+'">'+(ri===0?'f'+s+' ':'')+r+' '+q[r]+'</td>';
     const blk=st.blocks[s];
     for(const n of order){
       for(let c=0;c<n.seq.length;c++){
-        let cls=[]; if(c===0) cls.push('nodeL'); let txt='';
+        const cls=[]; if(c===0) cls.push('nodeL'); let txt='';
         const b=blk&&blk.get(n.id);
         if(b){
           const x=b.vals[c][ri]; txt=x>=INF?'∞':x;
@@ -585,8 +826,9 @@ function renderMatrix(st){
           cls.push('clk');
         }
         if(pad) cls.push('padrow');
+        if(seeds.has(n.id+'|'+c+'|'+r)) cls.push('c-seed');
         if(pathSet.has(n.id+'|'+c+'|'+r)) cls.push('c-path');
-        if(sel&&sel.s===s&&sel.v===n.id&&sel.c===c) cls.push('c-sel');
+        if(sel&&sel.pass===st.pass&&sel.s===s&&sel.v===n.id&&sel.c===c) cls.push('c-sel');
         h+='<td class="'+cls.join(' ')+'"'+(b?' data-s="'+s+'" data-v="'+n.id+'" data-c="'+c+'"':'')+'>'+txt+'</td>';
       }
     }
@@ -596,91 +838,103 @@ function renderMatrix(st){
   $('matrixWrap').innerHTML=h;
 }
 
-function bitsOf(col,top,w){ // delta vertical em bits; bit r = linha r (bit 0 = linha de cima)
-  let VP=0,VN=0,ok=true;
-  for(let r=0;r<w;r++){const d=col[r]-(r===0?top:col[r-1]); if(d===1)VP|=1<<r; else if(d===-1)VN|=1<<r; else if(d!==0)ok=false;}
-  return {VP,VN,ok};
-}
+function bitsOf(col,top,w){ let VP=0,VN=0,ok=true; for(let r=0;r<w;r++){const d=col[r]-(r===0?top:col[r-1]); if(d===1)VP|=1<<r; else if(d===-1)VN|=1<<r; else if(d!==0)ok=false;} return {VP,VN,ok}; }
 function myersStep(Eq,VP,VN,hinP,hinN,w){
   const M=(1<<w)-1;
   const Xv=(Eq|VN)&M; const Eq2=(Eq|hinN)&M;
   const Xh=(((((Eq2&VP)+VP)&M)^VP)|Eq2)&M;
   const Ph=(VN|(~(Xh|VP)))&M; const Mh=(VP&Xh)&M;
   const tMh=((Mh<<1)|hinN)&M, tPh=((Ph<<1)|hinP)&M;
-  return {Xv,Xh,Ph,Mh,VP:(tMh|(~(Xv|tPh)))&M,VN:(tPh&Xv)&M,outP:(Ph>>(w-1))&1,outN:(Mh>>(w-1))&1};
+  return {Xv,Xh,Ph,Mh,VP:(tMh|(~(Xv|tPh)))&M,VN:(tPh&Xv)&M};
 }
+function aboveValue(pass,s,v,c){ const ps=RUN.passes[pass]; if(s===0) return ps.mode==='seeds'?INF:0; const A=ps.carriedInto[s].get(v); return A?A[c]:INF; }
 
 function renderBits(st){
   const box=$('bits');
-  if(!sel){box.innerHTML='<span class="note">Clique numa célula calculada da matriz.</span>';return;}
+  if(!sel||sel.pass!==st.pass){box.innerHTML='<span class="note">Clique numa célula calculada da matriz.</span>';return;}
   const blk=st.blocks[sel.s]&&st.blocks[sel.s].get(sel.v);
   if(!blk){box.innerHTML='<span class="note">Esse bloco ainda não foi calculado neste passo.</span>';return;}
-  const w=PARAMS.w, n=G.nodes[sel.v], c=sel.c, base=sel.s*w, q=RUN.q, ch=n.seq[c];
+  const w=PARAMS.w, n=G.nodes[sel.v], c=sel.c, base=sel.s*w, q=RUN.passes[st.pass].q, ch=n.seq[c];
   const cands=blk.cands[c], fin=blk.vals[c];
-  const bitRow=(lab,x,cls)=>'<tr><td class="lab">'+lab+'</td>'+Array.from({length:w},(_,r)=>'<td class="'+(((x>>r)&1)?(cls||'on'):'')+'">'+((x>>r)&1)+'</td>').join('')+'</tr>';
+  const bitRow=(lab,x)=>'<tr><td class="lab">'+lab+'</td>'+Array.from({length:w},(_,r)=>'<td class="'+(((x>>r)&1)?'on':'')+'">'+((x>>r)&1)+'</td>').join('')+'</tr>';
   const valRow=(lab,arr,win)=>'<tr><td class="lab">'+lab+'</td>'+arr.map((x,r)=>'<td class="'+(win&&win[r]?'win':'')+'">'+(x>=INF?'∞':x)+'</td>').join('')+'</tr>';
   let Eq=0; for(let r=0;r<w;r++) if(charMatch(q[base+r],ch)) Eq|=1<<r;
+  const head='<tr><th></th>'+Array.from({length:w},(_,r)=>'<th>'+(base+r)+'</th>').join('')+'</tr>';
   let h='<div>Bloco n'+n.id+' '+label(n)+', fatia '+sel.s+', coluna '+c+' (caractere <b>'+ch+'</b>).</div>';
-  h+='<table><tr><th></th>'+Array.from({length:w},(_,r)=>'<th>'+(base+r)+'<br>'+q[base+r]+'</th>').join('')+'</tr>';
-  h+=bitRow('Eq',Eq);
-  h+='</table>';
-  // candidatas e fusão
-  h+='<div style="margin-top:6px"><b>Candidatas e fusão pelo mínimo</b></div><table><tr><th>origem</th>'+Array.from({length:w},(_,r)=>'<th>'+(base+r)+'</th>').join('')+'</tr>';
+  h+='<table><tr><th></th>'+Array.from({length:w},(_,r)=>'<th>'+(base+r)+'<br>'+q[base+r]+'</th>').join('')+'</tr>'+bitRow('Eq',Eq)+'</table>';
   const nameOf=f=>f==='esq'?'coluna à esquerda':f==='cima'?'só de cima (vertical)':f==='início'?'início livre (linha 0)':f==='semente'?'coluna de semente':'última col. de '+f;
-  for(const x of cands){const win=x.vals.map((v,r)=>v===fin[r]); h+=valRow(nameOf(x.from),x.vals,win);}
-  h+=valRow('<b>final</b>',fin);
-  h+='</table>';
-  if(cands.length>1) h+='<div class="note">Em verde, as candidatas que dão o mínimo em cada linha. É isso que <code>mergeWith</code> faz com as máscaras <code>leftSmaller</code>/<code>rightSmaller</code>.</div>';
-  // passo de Myers para cada candidata que vem de uma coluna à esquerda
+  h+='<div style="margin-top:6px"><b>Candidatas e fusão pelo mínimo</b></div><table>'+head.replace('<th></th>','<th>origem</th>');
+  for(const x of cands) h+=valRow(nameOf(x.from),x.vals,x.vals.map((v,r)=>v===fin[r]));
+  h+=valRow('<b>final</b>',fin)+'</table>';
+  if(cands.length>1) h+='<div class="note">Em verde, as candidatas que dão o mínimo em cada linha. É o que <code>mergeWith</code> faz com as máscaras <code>leftSmaller</code>/<code>rightSmaller</code>.</div>';
   for(const x of cands){
     if(!x.left) continue;
-    const aboveVal=aboveValue(sel.s,sel.v,c);
-    const Lb=bitsOf(x.left,x.aboveLeft,w);
-    const hin=aboveVal-x.aboveLeft;
+    const aboveVal=aboveValue(st.pass,sel.s,sel.v,c);
+    const Lb=bitsOf(x.left,x.aboveLeft,w), hin=aboveVal-x.aboveLeft;
     h+='<div style="margin-top:8px"><b>Passo de Myers a partir de '+nameOf(x.from)+'</b></div>';
     if(aboveVal>=INF||x.aboveLeft>=INF||!Lb.ok||Math.abs(hin)>1){h+='<div class="note">Não representável em bits: algum valor vem de fora da banda (∞). O código trata esse caso à parte.</div>';continue;}
-    const hinP=hin===1?1:0, hinN=hin===-1?1:0;
-    const R=myersStep(Eq,Lb.VP,Lb.VN,hinP,hinN,w);
+    const R=myersStep(Eq,Lb.VP,Lb.VN,hin===1?1:0,hin===-1?1:0,w);
     let vals=[],acc=aboveVal; for(let r=0;r<w;r++){acc+=((R.VP>>r)&1)-((R.VN>>r)&1);vals.push(acc);}
     const same=vals.every((v,r)=>v===x.vals[r]);
-    h+='<table><tr><th></th>'+Array.from({length:w},(_,r)=>'<th>'+(base+r)+'</th>').join('')+'</tr>';
-    h+=bitRow('VP esq.',Lb.VP)+bitRow('VN esq.',Lb.VN);
+    h+='<table>'+head+bitRow('VP esq.',Lb.VP)+bitRow('VN esq.',Lb.VN);
     h+='<tr><td class="lab">Δh no topo</td><td colspan="'+w+'">'+(hin>0?'+1':hin)+'  (acima: '+aboveVal+' − '+x.aboveLeft+')</td></tr>';
-    h+=bitRow('Xv=Eq|VN',R.Xv)+bitRow('Xh (soma)',R.Xh)+bitRow('Ph',R.Ph)+bitRow('Mh',R.Mh)+bitRow('VP novo',R.VP)+bitRow('VN novo',R.VN);
-    h+=valRow('valores',vals);
+    h+=bitRow('Xv=Eq|VN',R.Xv)+bitRow('Xh (soma)',R.Xh)+bitRow('Ph',R.Ph)+bitRow('Mh',R.Mh)+bitRow('VP novo',R.VP)+bitRow('VN novo',R.VN)+valRow('valores',vals);
     h+='</table><div class="'+(same?'ok':'no')+'">'+(same?'Confere com o DP célula a célula ✓':'Não confere com o DP')+'</div>';
   }
   h+='<div class="note" style="margin-top:6px">Bit r = linha r da fatia; a primeira coluna à esquerda é a linha de cima. Xh = (((Eq &amp; VP) + VP) ^ VP) | Eq.</div>';
   box.innerHTML=h;
 }
-function aboveValue(s,v,c){ // valor usado como linha acima da fatia s
-  if(s===0) return 0;
-  const A=RUN.carriedInto[s].get(v); return A?A[c]:INF;
+
+function renderSeeds(){
+  const box=$('seeds');
+  if(PARAMS.mode!=='seeds'||!RUN.seedInfo){box.innerHTML='<span class="note">Escolha o modo "com sementes" para ver minimizers e clusters.</span>';return;}
+  const I=RUN.seedInfo;
+  let h='<div class="note">Índice: '+I.indexSize+' minimizers (k = '+PARAMS.k+', janela = '+PARAMS.win+' bp).'+(I.short.length?' Nós menores que a janela não geram minimizers: '+I.short.join(', ')+'.':'')+(I.skippedOverlap.length?' Descartados por estarem na sobreposição de entrada: '+I.skippedOverlap.length+'.':'')+'</div>';
+  if(!I.hits.length){box.innerHTML=h+'<div class="err">Nenhuma semente encontrada.</div>';return;}
+  h+='<label for="clusterSel">Cluster estendido</label><select id="clusterSel">'+I.clusters.map(c=>'<option value="'+c.id+'"'+(c.id===PARAMS.cluster?' selected':'')+'>'+(c.id+1)+': '+c.hits.length+' sementes, '+c.goodness+' bases cobertas'+(c.merged?' (+ clusters juntados)':'')+'</option>').join('')+'</select>';
+  h+='<table class="mini"><tr><th>k-mer</th><th>fim na read</th><th>nó</th><th>offset</th><th>freq.</th><th>diag.</th><th>cl.</th></tr>';
+  for(const x of [...I.hits].sort((a,b)=>a.cluster-b.cluster||a.r-b.r).slice(0,60)) h+='<tr class="'+(x.cluster===PARAMS.cluster?'chosen':'')+'"><td>'+x.kmer+'</td><td>'+x.r+'</td><td>n'+x.v+' '+x.key+'</td><td>'+x.off+'</td><td>'+x.count+'</td><td>'+x.diag+'</td><td>'+(x.cluster+1)+'</td></tr>';
+  h+='</table><div class="note">O GraphAligner estende até 5 clusters, um DP por cluster. Aqui se estende um por vez.</div>';
+  box.innerHTML=h;
+  $('clusterSel').onchange=ev=>{PARAMS_CLUSTER=+ev.target.value;execute();};
+}
+
+function summarize(path,ops,startRow,endRow,cC,extra){
+  const cnt=k=>ops.filter(o=>o===k).length;
+  const M=cnt('='),X=cnt('X'),I=cnt('I'),D=cnt('D'), E=X+I+D, L=M+X+I;
+  let cig='',last='',n=0; for(const o of ops.concat(['$'])){if(o===last)n++;else{if(n)cig+=n+last;last=o;n=1;}}
+  const np=[]; for(const p of path){const nm=label(G.nodes[p.v]); if(np[np.length-1]!==nm) np.push(nm);}
+  const rows=[['caminho',np.join(' → ')],['trecho da read',startRow+'–'+endRow+' ('+L+' bases)'],['CIGAR',cig],['erros (NM)',E+' = '+X+' X + '+I+' I + '+D+' D'],['identidade',(M/Math.max(1,ops.length)).toFixed(3)]];
+  if(extra==='semi') rows.push(['distância de edição',String(E)]);
+  else rows.push(['AS = L − c·E',(L-cC*E).toFixed(2)+'  (c = '+cC.toFixed(2)+')']);
+  return '<table class="result">'+rows.map(r=>'<tr><td>'+r[0]+'</td><td><code>'+r[1]+'</code></td></tr>').join('')+'</table>';
 }
 
 function renderResult(st){
-  const e=st.result; const box=$('result');
-  if(!e){box.innerHTML='<span class="note">Aparece no último passo.</span>';return;}
-  if(!e.end){box.textContent='Nenhum alinhamento.';return;}
-  const ops=e.ops, cnt=k=>ops.filter(o=>o===k).length;
-  const M=cnt('='),X=cnt('X'),I=cnt('I'),D=cnt('D'), E=X+I+D, L=M+X+I;
-  let cig='',last='',n=0; for(const o of ops.concat(['$'])){if(o===last)n++;else{if(n)cig+=n+last;last=o;n=1;}}
-  const nodesPath=[]; for(const p of e.path){const nm=label(G.nodes[p.v]); if(nodesPath[nodesPath.length-1]!==nm) nodesPath.push(nm);}
-  const rows=[['caminho',nodesPath.join(' → ')],['trecho da read',e.startRow+'–'+e.end.r+' ('+L+' bases)'],['CIGAR',cig],['erros (NM)',E+' = '+X+' X + '+I+' I + '+D+' D'],['identidade',(M/ops.length).toFixed(3)]];
-  if(e.mode==='semi') rows.push(['distância de edição',String(e.end.val)]);
-  else {rows.push(['X-score do fim',e.end.X.toFixed(2)]); rows.push(['AS = L − c·E',(L-e.cC*E).toFixed(2)+'  (c = '+e.cC.toFixed(2)+')']);}
-  box.innerHTML='<table class="result">'+rows.map(r=>'<tr><td>'+r[0]+'</td><td><code>'+r[1]+'</code></td></tr>').join('')+'</table>'+(e.approx?'<div class="note">Algum passo do traceback não bateu exatamente por causa da banda; foi usado o menor predecessor, como no código.</div>':'');
+  const box=$('result');
+  const r0=RUN.passes[0].result, done=step===RUN.events.length-1||st.final;
+  let h='';
+  if(st.result&&st.pass===0||st.pass===1||done){
+    if(r0.end){ h+='<div><b>Passe para a frente</b></div>'+summarize(r0.path,r0.ops,r0.startRow,r0.end.r,r0.cC,PARAMS.mode); }
+    else h+='<div class="err">Passe para a frente sem alinhamento.</div>';
+  }
+  if(done&&RUN.passes[1]){
+    if(RUN.final) h+='<div style="margin-top:8px"><b>Alinhamento final</b> (do passe para trás, convertido)</div>'+summarize(RUN.final.path,RUN.final.ops,RUN.final.startRow,RUN.final.endRow,RUN.final.cC,'local');
+    else h+='<div class="err">O passe para trás não achou alinhamento.</div>';
+  }
+  if(r0.approx) h+='<div class="note">Algum passo do traceback não bateu exatamente por causa da banda; foi usado o menor predecessor, como no código.</div>';
+  box.innerHTML=h||'<span class="note">Aparece no fim do passe.</span>';
 }
 
 function go(k){step=Math.max(0,Math.min(RUN.events.length-1,k));render();}
 function stop(){if(timer){clearInterval(timer);timer=null;$('bPlay').textContent='▶ tocar';}}
-function findSlice(dir){
-  const ev=RUN.events; let k=step+dir;
-  while(k>0&&k<ev.length-1&&ev[k].type!=='slice') k+=dir;
-  go(k);
-}
+function findSlice(dir){ const ev=RUN.events; let k=step+dir; while(k>0&&k<ev.length-1&&ev[k].type!=='slice') k+=dir; go(k); }
+function appendLine(line){ const t=$('gfa'); t.value=(t.value.replace(/\s+$/,'')+'\n'+line).replace(/^\n/,''); }
+
 window.addEventListener('DOMContentLoaded',()=>{
-  fillPresets();
+  fillPresets('p0');
+  $('preset').onchange=pickPreset;
+  $('mode').onchange=toggleSeedParams;
   $('runBtn').onclick=execute;
   $('bFirst').onclick=()=>{stop();go(0);};
   $('bLast').onclick=()=>{stop();go(RUN.events.length-1);};
@@ -691,9 +945,13 @@ window.addEventListener('DOMContentLoaded',()=>{
   $('slider').oninput=()=>{stop();go(+$('slider').value);};
   $('stored').onchange=()=>render();
   $('bPlay').onclick=()=>{ if(timer){stop();return;} $('bPlay').textContent='⏸ pausar'; timer=setInterval(()=>{ if(step>=RUN.events.length-1){stop();return;} go(step+1); },700); };
-  $('matrixWrap').addEventListener('click',ev=>{const td=ev.target.closest('td[data-v]'); if(!td) return; sel={s:+td.dataset.s,v:+td.dataset.v,c:+td.dataset.c}; render();});
-  document.addEventListener('keydown',ev=>{ if(ev.target.tagName==='TEXTAREA'||ev.target.tagName==='INPUT') return; if(ev.key==='ArrowRight'){stop();go(step+1);} if(ev.key==='ArrowLeft'){stop();go(step-1);} });
-  loadPreset(0);
+  $('matrixWrap').addEventListener('click',ev=>{const td=ev.target.closest('td[data-v]'); if(!td) return; sel={pass:stateAt(step).pass,s:+td.dataset.s,v:+td.dataset.v,c:+td.dataset.c}; render();});
+  $('addNode').onclick=()=>{ const nm=$('nName').value.trim(), sq=$('nSeq').value.trim().toUpperCase(); if(!nm||!/^[ACGTN]+$/.test(sq)){$('err').textContent='Dê um nome e uma sequência com A, C, G, T, N.';return;} appendLine('S\t'+nm+'\t'+sq); $('nName').value='';$('nSeq').value=''; $('err').textContent=''; };
+  $('addEdge').onclick=()=>{ const a=$('eA').value.trim(), b=$('eB').value.trim(), ov=Math.max(0,+$('eOv').value||0); if(!a||!b){$('err').textContent='Informe os dois nós da aresta.';return;} appendLine('L\t'+a+'\t'+$('eAo').value+'\t'+b+'\t'+$('eBo').value+'\t'+ov+'M'); $('err').textContent=''; };
+  $('saveBtn').onclick=()=>{ const nm=$('saveName').value.trim(); if(!nm){$('err').textContent='Dê um nome ao exemplo.';return;} const list=loadSaved(); const i=list.findIndex(x=>x.name===nm); const cfg=currentCfg(nm); if(i>=0) list[i]=cfg; else list.push(cfg); if(storeSaved(list)){ fillPresets('s'+(i>=0?i:list.length-1)); $('info').textContent='Salvo neste navegador.'; $('saveName').value=''; } else $('err').textContent='O navegador não permitiu salvar (modo privado?).'; };
+  $('delSaved').onclick=()=>{ const v=$('preset').value; if(!v.startsWith('s')) return; const list=loadSaved(); list.splice(+v.slice(1),1); storeSaved(list); fillPresets('p0'); pickPreset(); };
+  document.addEventListener('keydown',ev=>{ if(['TEXTAREA','INPUT','SELECT'].includes(ev.target.tagName)) return; if(ev.key==='ArrowRight'){stop();go(step+1);} if(ev.key==='ArrowLeft'){stop();go(step-1);} });
+  applyCfg(PRESETS[0]); toggleSeedParams(); execute();
 });
 </script>
 </body>
