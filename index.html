@@ -691,7 +691,7 @@ function runPass(graph,read,P,opt){
     carried=new Map(); const out=[];
     for(const [v,vals] of cur){ if(!xd&&bottomMin(vals,w)<=sMin+bw) carried.set(v,vals.map(c=>c[w-1])); else out.push(v); }
     prevMin=xd?INF:sMin; sMins[s]=sMin;
-    events.push({type:'sliceEnd',pass,s,sMin,sMaxX,carried:[...carried.keys()],dropped:out,tangled,xdrop:xd,stopped,bw,vit:vrow?{...vrow}:null,queue:[]});
+    events.push({type:'sliceEnd',pass,s,sMin,sMaxX,carried:[...carried.keys()],dropped:out,tangled,xdrop:xd,stopped,bw,vit:vrow?{...vrow}:null,vitPrev:(vrow&&s>0&&vit[s-1])?{gC:vit[s-1].gC,gW:vit[s-1].gW}:null,queue:[]});
     if(vstop){ events.push({type:'vstop',pass,s,at:vstop.s,queue:[]}); for(let i=s+1;i<nS;i++){blocks[i]=new Map();carriedInto[i]=new Map();seedNodes[i]=new Set();} break; }
     if(ramp){
       events.push({type:'ramp',pass,s,from:ramp.from,to:ramp.to,B:ramp.B,queue:[]});
@@ -1013,7 +1013,7 @@ function stateAt(k){
     if((e.pass||0)!==pass) continue;
     if(e.type==='slice'){st.blocks[e.s]=new Map(); st.curSlice=e.s; st.sliceDone[e.s]=false;}
     if(e.type==='compute'){st.blocks[e.s].set(e.v,{vals:e.vals,cands:e.cands,tops:e.tops,ev:e});}
-    if(e.type==='sliceEnd'){st.sliceDone[e.s]=true;st.carried[e.s]=new Set(e.carried);st.dropped[e.s]=new Set(e.dropped);if(e.xdrop) st.xdropped[e.s]=true; if(e.vit) st.vit[e.s]=e.vit;}
+    if(e.type==='sliceEnd'){st.sliceDone[e.s]=true;st.carried[e.s]=new Set(e.carried);st.dropped[e.s]=new Set(e.dropped);if(e.xdrop) st.xdropped[e.s]=true; if(e.vit) st.vit[e.s]=e.vit; if(e.vitPrev&&st.vit[e.s-1]) st.vit[e.s-1]={...st.vit[e.s-1],...e.vitPrev};}
     if(e.type==='ramp'){ for(let j=e.to;j<st.blocks.length;j++){ delete st.blocks[j]; st.sliceDone[j]=false; delete st.vit[j]; } st.vit.length=Math.min(st.vit.length,e.to); }
     if(e.type==='end') st.end=e.end;
     if(e.type==='result') st.result=e;
@@ -1329,51 +1329,64 @@ function renderBits(st){
   const cands=blk.cands[c], fin=blk.vals[c], top=blk.tops?blk.tops[c]:aboveValue(st.pass,sel.s,sel.v,c);
   const bitRow=(lab,x,cls)=>'<tr><td class="lab">'+lab+'</td>'+Array.from({length:w},(_,r)=>'<td class="'+(((x>>r)&1)?(cls||'on'):'')+'">'+((x>>r)&1)+'</td>').join('')+'</tr>';
   const valRow=(lab,arr,win)=>'<tr><td class="lab">'+lab+'</td>'+arr.map((x,r)=>'<td class="'+(win&&win[r]?'win':'')+'">'+(x>=INF?'∞':x)+'</td>').join('')+'</tr>';
+  const numRow=(lab,arr)=>'<tr><td class="lab">'+lab+'</td>'+arr.map(x=>'<td>'+x+'</td>').join('')+'</tr>';
   let Eq=0; for(let r=0;r<w;r++) if(charMatch(q[base+r],ch)) Eq|=1<<r;
-  const head='<tr><th></th>'+Array.from({length:w},(_,r)=>'<th>'+(base+r)+'</th>').join('')+'</tr>';
-  let h='<div>Bloco n'+n.id+' '+label(n)+', fatia '+sel.s+', coluna '+c+' (caractere <b>'+ch+'</b>).</div>';
-  h+='<table><tr><th></th>'+Array.from({length:w},(_,r)=>'<th>'+(base+r)+'<br>'+q[base+r]+'</th>').join('')+'</tr>'+bitRow('Eq',Eq)+'</table>';
-  const nameOf=f=>f==='esq'?'coluna à esquerda':f==='cima'?'só de cima (vertical)':f==='início'?'início livre (linha 0)':f==='início exato'?'início exato da semente':f==='semente'?'coluna de semente':'última col. de '+f;
-  h+='<div style="margin-top:6px"><b>Candidatas e fusão pelo mínimo</b></div><table>'+head.replace('<th></th>','<th>origem</th>');
+  const head='<tr><th>linha da read →<br>bit →</th>'+Array.from({length:w},(_,r)=>'<th>'+(base+r)+'<br><small>b'+r+'</small></th>').join('')+'</tr>';
+  const nameOf=f=>f==='esq'?'vinda da coluna à esquerda':f==='cima'?'só de cima (vertical)':f==='início'?'início livre (linha 0)':f==='início exato'?'início exato da semente':f==='semente'?'candidata de início (semente)':'vinda de '+f+' ('+label(G.nodes[+f.slice(1)])+')';
+  const prevName=f=>f==='esq'?'a coluna à esquerda neste nó':'a última coluna de '+f+' ('+label(G.nodes[+f.slice(1)])+')';
+  let h='<div>Bloco n'+n.id+' '+label(n)+', fatia '+sel.s+', coluna '+c+' (caractere <b>'+ch+'</b>). Valor logo acima da fatia nesta coluna: '+(top>=INF?'∞':top)+'.</div>';
+  h+='<div class="note">Cada coluna destas tabelas é uma <b>linha</b> da matriz (a coluna da matriz aparece deitada). b0 = bit 0 = primeira linha da fatia.</div>';
+  h+='<table>'+head.replace('linha da read →<br>bit →','read →')+'<tr><td class="lab">base da read</td>'+Array.from({length:w},(_,r)=>'<td>'+q[base+r]+'</td>').join('')+'</tr>'+bitRow('Eq (casa com '+ch+'?)',Eq)+'</table>';
+  // 1. passo de Myers por antecessor
+  let k=0;
+  for(const x of cands){
+    if(!x.left) continue;
+    k++;
+    const aboveVal=top;
+    const Lb=bitsOf(x.left,x.aboveLeft,w), hin=aboveVal-x.aboveLeft;
+    h+='<div style="margin-top:8px"><b>1.'+k+' Passo de Myers:</b> de '+prevName(x.from)+' para esta coluna → candidata “'+nameOf(x.from)+'”</div>';
+    if(aboveVal>=INF||x.aboveLeft>=INF||!Lb.ok||Math.abs(hin)>1){h+='<div class="note">Esta candidata depende de um valor ∞ (célula fora da banda), que não cabe em VP/VN. O visualizador a calculou com números comuns; o GraphAligner trata esse caso à parte.</div>';continue;}
+    const hinP=hin===1?1:0, hinN=hin===-1?1:0, M=(1<<w)-1;
+    const R=myersStep(Eq,Lb.VP,Lb.VN,hinP,hinN,w);
+    const Eq2=(Eq|hinN)&M, a1=(Eq2&Lb.VP)&M, a2=((a1+Lb.VP)&M);
+    const tPh=((R.Ph<<1)|hinP)&M, tMh=((R.Mh<<1)|hinN)&M;
+    const vals=valsFromBits(R.VP,R.VN,aboveVal,w);
+    const same=vals.every((v,r)=>v===x.vals[r]);
+    h+='<table>'+head+valRow('coluna anterior (valores)',x.left)+bitRow('VP da col. anterior',Lb.VP)+bitRow('VN da col. anterior',Lb.VN);
+    h+='<tr><td class="lab">Δh no topo = acima desta − acima da anterior</td><td colspan="'+w+'">'+(hin>0?'+1':hin)+' = '+aboveVal+' − '+x.aboveLeft+' → hinP='+hinP+', hinN='+hinN+'</td></tr>';
+    h+=bitRow('Xv = Eq | VN',R.Xv)+bitRow("Eq' = Eq | hinN",Eq2)+bitRow("Eq' & VP",a1)+bitRow("(Eq' & VP) + VP",a2)+bitRow("Xh = (… ^ VP) | Eq'",R.Xh)+bitRow('Ph = VN | ~(Xh | VP)',R.Ph)+bitRow('Mh = VP & Xh',R.Mh)+bitRow('Ph desl. (b0 = hinP)',tPh)+bitRow('Mh desl. (b0 = hinN)',tMh)+bitRow('VP novo',R.VP)+bitRow('VN novo',R.VN)+valRow('valores',vals);
+    h+='</table><div class="'+(same?'ok':'no')+'">'+(same?'Confere com o DP célula a célula ✓':'Não confere com o DP')+'</div>';
+  }
+  // 2. candidatas
+  h+='<div style="margin-top:8px"><b>2. Candidatas e fusão pelo mínimo</b></div><table>'+head;
   for(const x of cands) h+=valRow(nameOf(x.from),x.vals,x.vals.map((v,r)=>v===fin[r]));
-  h+=valRow('<b>final</b>',fin)+'</table>';
-  // fusão em bits, como mergeWith faz: funde as candidatas uma a uma
+  h+=valRow('<b>final (mínimo)</b>',fin)+'</table>';
+  // 3. fusão em bits
   const repr=cands.map(x=>({x,b:bitsOf(x.vals,top,w)})).filter(o=>top<INF&&o.b.ok&&o.x.vals.every(v=>v<INF));
   if(cands.length>1){
     if(repr.length>=2){
-      let acc={VP:repr[0].b.VP,VN:repr[0].b.VN,end:repr[0].x.vals[w-1],before:top,name:nameOf(repr[0].x.from)};
+      let acc={VP:repr[0].b.VP,VN:repr[0].b.VN,end:repr[0].x.vals[w-1],before:top,name:'candidata “'+nameOf(repr[0].x.from)+'”'};
+      let accVals=repr[0].x.vals.slice();
       for(let i=1;i<repr.length;i++){
-        const B={VP:repr[i].b.VP,VN:repr[i].b.VN,end:repr[i].x.vals[w-1],before:top,name:nameOf(repr[i].x.from)};
+        const B={VP:repr[i].b.VP,VN:repr[i].b.VN,end:repr[i].x.vals[w-1],before:top,name:'candidata “'+nameOf(repr[i].x.from)+'”'};
         const T=bitMergeTrace(acc,B,w);
         const vals=valsFromBits(T.VP,T.VN,top,w);
-        const want=valsFromBits(acc.VP,acc.VN,top,w).map((v,r)=>Math.min(v,valsFromBits(B.VP,B.VN,top,w)[r]));
+        const bv=repr[i].x.vals;
+        const want=accVals.map((v,r)=>Math.min(v,bv[r]));
         const ok=vals.every((v,r)=>v===want[r]);
-        h+='<div style="margin-top:8px"><b>Fusão em bits '+i+':</b> esquerda = '+acc.name+', direita = '+B.name+'</div><table>'+head;
+        h+='<div style="margin-top:8px"><b>3.'+i+' Fusão em bits:</b> esquerda = '+acc.name+'; direita = '+B.name+'. As duas partem do mesmo valor de cima ('+top+').</div><table>'+head;
+        h+=valRow('esquerda (valores)',accVals)+valRow('direita (valores)',bv)+numRow('d = esq − dir',accVals.map((v,r)=>v-bv[r]));
         h+=bitRow('VP esq.',acc.VP)+bitRow('VN esq.',acc.VN)+bitRow('VP dir.',B.VP)+bitRow('VN dir.',B.VN);
-        h+=bitRow('esq. sobe 1',T.init.onebigger)+bitRow('esq. sobe 2',T.init.twobigger)+bitRow('esq. desce 1',T.init.onesmaller)+bitRow('esq. desce 2',T.init.twosmaller);
-        h+=bitRow('leftSmaller',T.leftSmaller,'rgt')+bitRow('rightSmaller',T.rightSmaller,'rgt')+bitRow('máscara (pega da dir.)',T.mask,'rgt');
+        h+=bitRow('d sobe ≥1 (esq. piora)',T.init.onebigger)+bitRow('d sobe 2',T.init.twobigger)+bitRow('d desce ≥1 (esq. melhora)',T.init.onesmaller)+bitRow('d desce 2',T.init.twosmaller);
+        h+=bitRow('leftSmaller (esq. menor)',T.leftSmaller,'rgt')+bitRow('rightSmaller (dir. menor)',T.rightSmaller,'rgt')+bitRow('máscara (copia da dir.)',T.mask,'rgt');
         h+=bitRow('VP final',T.VP)+bitRow('VN final',T.VN)+valRow('valores',vals)+'</table>';
-        h+='<div class="note">'+T.log.map(x=>'• '+x).join('<br>')+'</div><div class="'+(ok?'ok':'no')+'">'+(ok?'Confere com o mínimo célula a célula ✓':'Não confere')+'</div>';
-        acc={VP:T.VP,VN:T.VN,end:T.end,before:top,name:'resultado anterior'};
+        h+='<div class="note">'+T.log.map(x=>'• '+x.replace(/linha (\d+)/g,(m,a)=>'bit '+a+' (linha '+(base+(+a))+')').replace(/linhas (\d+)–(\d+)/g,(m,a,b2)=>'bits '+a+'–'+b2+' (linhas '+(base+(+a))+'–'+(base+(+b2))+')')).join('<br>')+'</div><div class="'+(ok?'ok':'no')+'">'+(ok?'Confere com o mínimo célula a célula ✓':'Não confere')+'</div>';
+        acc={VP:T.VP,VN:T.VN,end:T.end,before:top,name:'resultado acumulado'}; accVals=vals;
       }
-      h+='<div class="note">"Esq. sobe/desce" marcam as linhas em que a diferença esquerda − direita aumenta ou diminui (as linhas em comum são canceladas antes). O laço casa cada descida com a subida seguinte, usando x &amp; −x para achar o bit 1 menos significativo, e marca os trechos em que cada lado é menor (<code>differenceMasksBitTwiddle</code>). Depois <code>mergeTwoSlices</code> copia VP/VN de cada lado conforme a máscara e corrige a linha da troca.</div>';
+      h+='<div class="note">d = esquerda − direita. As linhas em que os dois lados mudam igual não mudam d e são canceladas antes. “d sobe/desce ≥1” marca toda mudança; “2” marca as de tamanho 2 (uma linha com mudança 2 aparece nas duas). O laço percorre essas mudanças de cima para baixo, usando x &amp; −x para achar o bit 1 mais baixo, e marca onde cada lado é menor (<code>differenceMasksBitTwiddle</code>). Depois <code>mergeTwoSlices</code> copia VP/VN de cada lado conforme a máscara e corrige a linha da troca.</div>';
     } else h+='<div class="note">A fusão em bits só aparece quando todas as candidatas são finitas e a linha de cima é conhecida.</div>';
   }
-  for(const x of cands){
-    if(!x.left) continue;
-    const aboveVal=top;
-    const Lb=bitsOf(x.left,x.aboveLeft,w), hin=aboveVal-x.aboveLeft;
-    h+='<div style="margin-top:8px"><b>Passo de Myers a partir de '+nameOf(x.from)+'</b></div>';
-    if(aboveVal>=INF||x.aboveLeft>=INF||!Lb.ok||Math.abs(hin)>1){h+='<div class="note">Não representável em bits: algum valor vem de fora da banda (∞). O código trata esse caso à parte.</div>';continue;}
-    const R=myersStep(Eq,Lb.VP,Lb.VN,hin===1?1:0,hin===-1?1:0,w);
-    const vals=valsFromBits(R.VP,R.VN,aboveVal,w);
-    const same=vals.every((v,r)=>v===x.vals[r]);
-    h+='<table>'+head+bitRow('VP esq.',Lb.VP)+bitRow('VN esq.',Lb.VN);
-    h+='<tr><td class="lab">Δh no topo</td><td colspan="'+w+'">'+(hin>0?'+1':hin)+'  (acima: '+aboveVal+' − '+x.aboveLeft+')</td></tr>';
-    h+=bitRow('Xv=Eq|VN',R.Xv)+bitRow('Xh (soma)',R.Xh)+bitRow('Ph',R.Ph)+bitRow('Mh',R.Mh)+bitRow('VP novo',R.VP)+bitRow('VN novo',R.VN)+valRow('valores',vals);
-    h+='</table><div class="'+(same?'ok':'no')+'">'+(same?'Confere com o DP célula a célula ✓':'Não confere com o DP')+'</div>';
-  }
-  h+='<div class="note" style="margin-top:6px">Bit r = linha r da fatia; a primeira coluna à esquerda é a linha de cima. Xh = (((Eq &amp; VP) + VP) ^ VP) | Eq.</div>';
+  h+='<div class="note" style="margin-top:6px">Convenção: bit r = linha r da fatia; o bit 0 fica à esquerda. Por isso, nas somas, o “vai um” anda da esquerda para a direita nestas tabelas, e o que passa do último bit é descartado. “desl.” = deslocado uma linha para baixo (no código, &lt;&lt; 1), entrando no bit 0 o valor do topo.</div>';
   box.innerHTML=h;
 }
 
