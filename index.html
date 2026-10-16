@@ -97,7 +97,9 @@ td.clk{cursor:pointer}
 .bits table,.mini{border-collapse:collapse;margin:6px 0;font:12px var(--mono)}
 .bits td,.bits th,.mini td,.mini th{border:1px solid var(--grid);padding:1px 5px;text-align:center}
 .bits th,.mini th{color:var(--quiet);font-weight:500}
-.bits td.lab{text-align:left;color:var(--quiet);white-space:nowrap}
+.bits td.lab{text-align:left;color:var(--quiet);white-space:normal;min-width:110px;max-width:150px}
+.bits table{display:block;overflow-x:auto;max-width:100%;scrollbar-width:thin}
+.bits td.lab,.bits tr > th:first-child{position:sticky;left:0;z-index:1;background:var(--panel);box-shadow:1px 0 0 var(--grid)}
 .bits td.on{background:var(--accent-soft);font-weight:700}
 .bits td.win{background:var(--good-soft);font-weight:700}
 .bits td.rgt{background:var(--seed-soft);font-weight:700}
